@@ -1,0 +1,10 @@
+{
+  "id": "folder-routines",
+  "name": "Folder Routines",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Render a checklist in your daily note from a folder structure. Checking an item logs the daily note's date into that note's 'entries' property.",
+  "author": "shabbirpatheria",
+  "authorUrl": "https://github.com/shabbirpatheria",
+  "isDesktopOnly": false
+}
