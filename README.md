@@ -1,4 +1,4 @@
-# Folder Routines
+# Habit Checklist
 
 An [Obsidian](https://obsidian.md) plugin that renders an interactive checklist in your daily note from a folder structure, and logs the daily note's date into each routine note when you check it off.
 
@@ -51,7 +51,7 @@ Unchecking removes the date. Checked items are shown with a strikethrough.
 
 ### From the Community Plugins browser
 
-Once accepted: Settings → Community plugins → Browse → search for "Folder Routines".
+Once accepted: Settings → Community plugins → Browse → search for "Habit Checklist".
 
 ### Manual
 
