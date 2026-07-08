@@ -16,12 +16,16 @@ interface FolderRoutinesSettings {
   routinesFolder: string;
   entriesProperty: string;
   storeDateFormat: string;
+  subtasksProperty: string;
+  subtaskEntriesProperty: string;
 }
 
 const DEFAULT_SETTINGS: FolderRoutinesSettings = {
   routinesFolder: "Routines",
   entriesProperty: "entries",
   storeDateFormat: "YYYY-MM-DD",
+  subtasksProperty: "subtasks",
+  subtaskEntriesProperty: "subtaskEntries",
 };
 
 function getDailyNoteFormat(app: App): string {
@@ -92,6 +96,28 @@ export default class FolderRoutinesPlugin extends Plugin {
     return entries.includes(dateStr);
   }
 
+  private getSubtasks(file: TFile): string[] {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return this.normalizeEntries(fm?.[this.settings.subtasksProperty])
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+
+  private normalizeSubtaskEntries(val: unknown): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    if (val == null || typeof val !== "object" || Array.isArray(val)) return out;
+    for (const [key, v] of Object.entries(val as Record<string, unknown>)) {
+      out[key] = this.normalizeEntries(v);
+    }
+    return out;
+  }
+
+  private isSubtaskChecked(file: TFile, name: string, dateStr: string): boolean {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const map = this.normalizeSubtaskEntries(fm?.[this.settings.subtaskEntriesProperty]);
+    return (map[name] ?? []).includes(dateStr);
+  }
+
   private async setEntry(file: TFile, dateStr: string, checked: boolean) {
     const prop = this.settings.entriesProperty;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -103,6 +129,82 @@ export default class FolderRoutinesPlugin extends Plugin {
       }
       entries.sort();
       fm[prop] = entries;
+    });
+  }
+
+  private async setSubtaskEntry(
+    file: TFile,
+    name: string,
+    dateStr: string,
+    checked: boolean,
+    allSubtasks: string[]
+  ) {
+    const entriesProp = this.settings.entriesProperty;
+    const subProp = this.settings.subtaskEntriesProperty;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const map = this.normalizeSubtaskEntries(fm[subProp]);
+      let dates = map[name] ?? [];
+      if (checked) {
+        if (!dates.includes(dateStr)) dates.push(dateStr);
+      } else {
+        dates = dates.filter((d) => d !== dateStr);
+      }
+      dates.sort();
+      map[name] = dates;
+
+      const allDone = allSubtasks.every((s) => (map[s] ?? []).includes(dateStr));
+      let entries = this.normalizeEntries(fm[entriesProp]);
+      if (allDone) {
+        if (!entries.includes(dateStr)) entries.push(dateStr);
+      } else {
+        entries = entries.filter((e) => e !== dateStr);
+      }
+      entries.sort();
+      fm[entriesProp] = entries;
+
+      if (Object.keys(map).length === 0) {
+        delete fm[subProp];
+      } else {
+        fm[subProp] = map;
+      }
+    });
+  }
+
+  private async setParentToggleAll(
+    file: TFile,
+    dateStr: string,
+    checked: boolean,
+    allSubtasks: string[]
+  ) {
+    const entriesProp = this.settings.entriesProperty;
+    const subProp = this.settings.subtaskEntriesProperty;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const map = this.normalizeSubtaskEntries(fm[subProp]);
+      for (const name of allSubtasks) {
+        let dates = map[name] ?? [];
+        if (checked) {
+          if (!dates.includes(dateStr)) dates.push(dateStr);
+        } else {
+          dates = dates.filter((d) => d !== dateStr);
+        }
+        dates.sort();
+        map[name] = dates;
+      }
+
+      let entries = this.normalizeEntries(fm[entriesProp]);
+      if (checked) {
+        if (!entries.includes(dateStr)) entries.push(dateStr);
+      } else {
+        entries = entries.filter((e) => e !== dateStr);
+      }
+      entries.sort();
+      fm[entriesProp] = entries;
+
+      if (Object.keys(map).length === 0) {
+        delete fm[subProp];
+      } else {
+        fm[subProp] = map;
+      }
     });
   }
 
@@ -182,27 +284,95 @@ export default class FolderRoutinesPlugin extends Plugin {
   }
 
   private renderItem(file: TFile, container: HTMLElement, dateStr: string) {
+    const subtasks = this.getSubtasks(file);
     const itemEl = container.createDiv({ cls: "folder-routines-item" });
     const label = itemEl.createEl("label", { cls: "folder-routines-label" });
     const checkbox = label.createEl("input", {
       type: "checkbox",
     }) as HTMLInputElement;
-    checkbox.checked = this.isChecked(file, dateStr);
     label.createSpan({ text: file.basename, cls: "folder-routines-text" });
-    itemEl.toggleClass("is-checked", checkbox.checked);
+
+    if (subtasks.length === 0) {
+      checkbox.checked = this.isChecked(file, dateStr);
+      itemEl.toggleClass("is-checked", checkbox.checked);
+
+      checkbox.addEventListener("change", async () => {
+        const target = checkbox.checked;
+        checkbox.disabled = true;
+        try {
+          await this.setEntry(file, dateStr, target);
+          itemEl.toggleClass("is-checked", target);
+        } catch (e) {
+          console.error("Folder Routines: failed to update frontmatter", e);
+          new Notice(`Folder Routines: failed to update ${file.basename}`);
+          checkbox.checked = !target;
+        } finally {
+          checkbox.disabled = false;
+        }
+      });
+      return;
+    }
+
+    const subContainer = container.createDiv({ cls: "folder-routines-subtasks" });
+    const subEls: { name: string; el: HTMLElement; checkbox: HTMLInputElement }[] = [];
+
+    const refreshParent = () => {
+      const allChecked = subEls.every((s) => s.checkbox.checked);
+      checkbox.checked = allChecked;
+      itemEl.toggleClass("is-checked", allChecked);
+    };
+
+    const setAllDisabled = (disabled: boolean) => {
+      checkbox.disabled = disabled;
+      for (const s of subEls) s.checkbox.disabled = disabled;
+    };
+
+    for (const name of subtasks) {
+      const subItem = subContainer.createDiv({ cls: "folder-routines-subtask" });
+      const subLabel = subItem.createEl("label", { cls: "folder-routines-label" });
+      const subCheckbox = subLabel.createEl("input", {
+        type: "checkbox",
+      }) as HTMLInputElement;
+      subCheckbox.checked = this.isSubtaskChecked(file, name, dateStr);
+      subLabel.createSpan({ text: name, cls: "folder-routines-text" });
+      subItem.toggleClass("is-checked", subCheckbox.checked);
+      subEls.push({ name, el: subItem, checkbox: subCheckbox });
+
+      subCheckbox.addEventListener("change", async () => {
+        const target = subCheckbox.checked;
+        setAllDisabled(true);
+        try {
+          await this.setSubtaskEntry(file, name, dateStr, target, subtasks);
+          subItem.toggleClass("is-checked", target);
+          refreshParent();
+        } catch (e) {
+          console.error("Folder Routines: failed to update frontmatter", e);
+          new Notice(`Folder Routines: failed to update ${file.basename}`);
+          subCheckbox.checked = !target;
+        } finally {
+          setAllDisabled(false);
+        }
+      });
+    }
+
+    refreshParent();
 
     checkbox.addEventListener("change", async () => {
       const target = checkbox.checked;
-      checkbox.disabled = true;
+      setAllDisabled(true);
       try {
-        await this.setEntry(file, dateStr, target);
+        await this.setParentToggleAll(file, dateStr, target, subtasks);
         itemEl.toggleClass("is-checked", target);
+        for (const s of subEls) {
+          s.checkbox.checked = target;
+          s.el.toggleClass("is-checked", target);
+        }
       } catch (e) {
         console.error("Folder Routines: failed to update frontmatter", e);
         new Notice(`Folder Routines: failed to update ${file.basename}`);
         checkbox.checked = !target;
       } finally {
-        checkbox.disabled = false;
+        setAllDisabled(false);
       }
     });
   }
@@ -255,6 +425,33 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.storeDateFormat)
           .onChange(async (value) => {
             this.plugin.settings.storeDateFormat = value.trim() || "YYYY-MM-DD";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Subtasks property")
+      .setDesc("Frontmatter property that lists a note's subtasks.")
+      .addText((text) =>
+        text
+          .setPlaceholder("subtasks")
+          .setValue(this.plugin.settings.subtasksProperty)
+          .onChange(async (value) => {
+            this.plugin.settings.subtasksProperty = value.trim() || "subtasks";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Subtask entries property")
+      .setDesc("Frontmatter property where per-subtask completion dates are stored.")
+      .addText((text) =>
+        text
+          .setPlaceholder("subtaskEntries")
+          .setValue(this.plugin.settings.subtaskEntriesProperty)
+          .onChange(async (value) => {
+            this.plugin.settings.subtaskEntriesProperty =
+              value.trim() || "subtaskEntries";
             await this.plugin.saveSettings();
           })
       );

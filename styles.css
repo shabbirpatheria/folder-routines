@@ -45,6 +45,19 @@
   color: var(--text-muted);
 }
 
+.folder-routines-subtasks {
+  margin-left: 1.5rem;
+}
+
+.folder-routines-subtask {
+  margin: 0.1rem 0;
+}
+
+.folder-routines-subtask.is-checked .folder-routines-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
 .folder-routines-error {
   color: var(--text-error);
   font-size: var(--font-ui-small);

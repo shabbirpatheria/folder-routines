@@ -33,12 +33,51 @@ entries:
 
 Unchecking removes the date. Checked items are shown with a strikethrough.
 
+### Subtasks
+
+A routine note can break a habit into subtasks by adding a `subtasks` list to its frontmatter:
+
+```yaml
+---
+subtasks:
+  - Warm up
+  - Main set
+  - Cool down
+---
+```
+
+Each subtask renders as a nested checkbox under the habit. The parent and its subtasks stay in sync both ways:
+
+- Checking **every** subtask automatically checks the parent and logs the daily note's date into `entries`.
+- Unchecking any subtask automatically unchecks the parent and removes that date.
+- Checking or unchecking the parent toggles **all** subtasks at once.
+
+Per-subtask completion is stored in a plugin-managed `subtaskEntries` property so it survives reloads:
+
+```yaml
+---
+subtasks:
+  - Warm up
+  - Main set
+subtaskEntries:
+  Warm up:
+    - 2026-06-25
+  Main set:
+    - 2026-06-25
+entries:
+  - 2026-06-25
+---
+```
+
+Notes without a `subtasks` property behave exactly as before — a single checkbox.
+
 ## Features
 
 - Checklist generated automatically from a folder structure
 - Section headers derived from subfolder names
 - Collapsible sections, plus a top-level **Habits** toggle to collapse the whole block
 - Checking an item writes the daily note's date into that note's `entries` property; unchecking removes it
+- Optional nested subtasks: completing all subtasks completes the parent, and toggling the parent toggles all subtasks
 - The daily note's date is parsed from its filename using your Daily Notes / Periodic Notes format
 
 ## Settings
@@ -46,6 +85,8 @@ Unchecking removes the date. Checked items are shown with a strikethrough.
 - **Routines folder** — vault-relative path to the root folder (default: `Routines`)
 - **Entries property** — frontmatter property updated when an item is checked (default: `entries`)
 - **Stored date format** — Moment format used for the date written into `entries` (default: `YYYY-MM-DD`)
+- **Subtasks property** — frontmatter property that lists a note's subtasks (default: `subtasks`)
+- **Subtask entries property** — frontmatter property where per-subtask completion dates are stored (default: `subtaskEntries`)
 
 ## Installation
 
