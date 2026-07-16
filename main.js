@@ -106,6 +106,35 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     const map = this.normalizeSubtaskEntries(fm?.[this.settings.subtaskEntriesProperty]);
     return (map[name] ?? []).includes(dateStr);
   }
+  async reconcileSubtaskEntries(file, subtasks) {
+    const entriesProp = this.settings.entriesProperty;
+    const subProp = this.settings.subtaskEntriesProperty;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const parentDates = this.normalizeEntries(fm?.[entriesProp]);
+    const current = this.normalizeSubtaskEntries(fm?.[subProp]);
+    const resolved = {};
+    let changed = false;
+    for (const name of subtasks) {
+      const set = new Set(current[name] ?? []);
+      const before = set.size;
+      for (const d of parentDates) set.add(d);
+      if (set.size !== before) changed = true;
+      resolved[name] = [...set].sort();
+    }
+    if (changed) {
+      await this.app.fileManager.processFrontMatter(file, (fmw) => {
+        const pDates = this.normalizeEntries(fmw[entriesProp]);
+        const map = this.normalizeSubtaskEntries(fmw[subProp]);
+        for (const name of subtasks) {
+          const set = new Set(map[name] ?? []);
+          for (const d of pDates) set.add(d);
+          map[name] = [...set].sort();
+        }
+        fmw[subProp] = map;
+      });
+    }
+    return resolved;
+  }
   async setEntry(file, dateStr, checked) {
     const prop = this.settings.entriesProperty;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -183,7 +212,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       }
     });
   }
-  renderRoutines(el, ctx) {
+  async renderRoutines(el, ctx) {
     el.empty();
     const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
     if (!(root instanceof import_obsidian.TFolder)) {
@@ -210,12 +239,12 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BE" });
     header.createSpan({ text: "Habits" });
     const body = section.createDiv({ cls: "folder-routines-body" });
-    this.renderFolder(root, body, dateStr, 3);
+    await this.renderFolder(root, body, dateStr, 3);
     header.addEventListener("click", () => {
       section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
     });
   }
-  renderFolder(folder, container, dateStr, depth) {
+  async renderFolder(folder, container, dateStr, depth) {
     const children = [...folder.children].sort(
       (a, b) => a.name.localeCompare(b.name)
     );
@@ -226,7 +255,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       (c) => c instanceof import_obsidian.TFolder
     );
     for (const file of files) {
-      this.renderItem(file, container, dateStr);
+      await this.renderItem(file, container, dateStr);
     }
     for (const sub of subfolders) {
       const section = container.createDiv({ cls: "folder-routines-section" });
@@ -235,13 +264,13 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BE" });
       header.createSpan({ text: sub.name });
       const body = section.createDiv({ cls: "folder-routines-body" });
-      this.renderFolder(sub, body, dateStr, depth + 1);
+      await this.renderFolder(sub, body, dateStr, depth + 1);
       header.addEventListener("click", () => {
         section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
       });
     }
   }
-  renderItem(file, container, dateStr) {
+  async renderItem(file, container, dateStr) {
     const subtasks = this.getSubtasks(file);
     const itemEl = container.createDiv({ cls: "folder-routines-item" });
     const label = itemEl.createEl("label", { cls: "folder-routines-label" });
@@ -280,13 +309,14 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       for (const s of subEls)
         s.checkbox.disabled = disabled;
     };
+    const resolved = await this.reconcileSubtaskEntries(file, subtasks);
     for (const name of subtasks) {
       const subItem = subContainer.createDiv({ cls: "folder-routines-subtask" });
       const subLabel = subItem.createEl("label", { cls: "folder-routines-label" });
       const subCheckbox = subLabel.createEl("input", {
         type: "checkbox"
       });
-      subCheckbox.checked = this.isSubtaskChecked(file, name, dateStr);
+      subCheckbox.checked = (resolved[name] ?? []).includes(dateStr);
       subLabel.createSpan({ text: name, cls: "folder-routines-text" });
       subItem.toggleClass("is-checked", subCheckbox.checked);
       subEls.push({ name, el: subItem, checkbox: subCheckbox });

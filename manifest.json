@@ -1,7 +1,7 @@
 {
   "id": "folder-routines",
   "name": "Habit Checklist",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "minAppVersion": "1.4.4",
   "description": "Render a checklist in your daily note from a folder structure. Checking an item logs the daily note's date into that note's 'entries' property.",
   "author": "shabbirpatheria",

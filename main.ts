@@ -118,6 +118,43 @@ export default class FolderRoutinesPlugin extends Plugin {
     return (map[name] ?? []).includes(dateStr);
   }
 
+  private async reconcileSubtaskEntries(
+    file: TFile,
+    subtasks: string[]
+  ): Promise<Record<string, string[]>> {
+    const entriesProp = this.settings.entriesProperty;
+    const subProp = this.settings.subtaskEntriesProperty;
+
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const parentDates = this.normalizeEntries(fm?.[entriesProp]);
+    const current = this.normalizeSubtaskEntries(fm?.[subProp]);
+
+    const resolved: Record<string, string[]> = {};
+    let changed = false;
+    for (const name of subtasks) {
+      const set = new Set(current[name] ?? []);
+      const before = set.size;
+      for (const d of parentDates) set.add(d);
+      if (set.size !== before) changed = true;
+      resolved[name] = [...set].sort();
+    }
+
+    if (changed) {
+      await this.app.fileManager.processFrontMatter(file, (fmw) => {
+        const pDates = this.normalizeEntries(fmw[entriesProp]);
+        const map = this.normalizeSubtaskEntries(fmw[subProp]);
+        for (const name of subtasks) {
+          const set = new Set(map[name] ?? []);
+          for (const d of pDates) set.add(d);
+          map[name] = [...set].sort();
+        }
+        fmw[subProp] = map;
+      });
+    }
+
+    return resolved;
+  }
+
   private async setEntry(file: TFile, dateStr: string, checked: boolean) {
     const prop = this.settings.entriesProperty;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -208,7 +245,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     });
   }
 
-  private renderRoutines(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
+  private async renderRoutines(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
     el.empty();
 
     const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
@@ -240,14 +277,14 @@ export default class FolderRoutinesPlugin extends Plugin {
     header.createSpan({ text: "Habits" });
 
     const body = section.createDiv({ cls: "folder-routines-body" });
-    this.renderFolder(root, body, dateStr, 3);
+    await this.renderFolder(root, body, dateStr, 3);
 
     header.addEventListener("click", () => {
       section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
     });
   }
 
-  private renderFolder(
+  private async renderFolder(
     folder: TFolder,
     container: HTMLElement,
     dateStr: string,
@@ -264,7 +301,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     );
 
     for (const file of files) {
-      this.renderItem(file, container, dateStr);
+      await this.renderItem(file, container, dateStr);
     }
 
     for (const sub of subfolders) {
@@ -275,7 +312,7 @@ export default class FolderRoutinesPlugin extends Plugin {
       header.createSpan({ text: sub.name });
 
       const body = section.createDiv({ cls: "folder-routines-body" });
-      this.renderFolder(sub, body, dateStr, depth + 1);
+      await this.renderFolder(sub, body, dateStr, depth + 1);
 
       header.addEventListener("click", () => {
         section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
@@ -283,7 +320,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     }
   }
 
-  private renderItem(file: TFile, container: HTMLElement, dateStr: string) {
+  private async renderItem(file: TFile, container: HTMLElement, dateStr: string) {
     const subtasks = this.getSubtasks(file);
     const itemEl = container.createDiv({ cls: "folder-routines-item" });
     const label = itemEl.createEl("label", { cls: "folder-routines-label" });
@@ -327,13 +364,15 @@ export default class FolderRoutinesPlugin extends Plugin {
       for (const s of subEls) s.checkbox.disabled = disabled;
     };
 
+    const resolved = await this.reconcileSubtaskEntries(file, subtasks);
+
     for (const name of subtasks) {
       const subItem = subContainer.createDiv({ cls: "folder-routines-subtask" });
       const subLabel = subItem.createEl("label", { cls: "folder-routines-label" });
       const subCheckbox = subLabel.createEl("input", {
         type: "checkbox",
       }) as HTMLInputElement;
-      subCheckbox.checked = this.isSubtaskChecked(file, name, dateStr);
+      subCheckbox.checked = (resolved[name] ?? []).includes(dateStr);
       subLabel.createSpan({ text: name, cls: "folder-routines-text" });
       subItem.toggleClass("is-checked", subCheckbox.checked);
       subEls.push({ name, el: subItem, checkbox: subCheckbox });

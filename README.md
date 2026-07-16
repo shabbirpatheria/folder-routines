@@ -2,6 +2,12 @@
 
 An [Obsidian](https://obsidian.md) plugin that renders an interactive checklist in your daily note from a folder structure, and logs the daily note's date into each routine note when you check it off.
 
+## Companion to Habit Tracker 21
+
+> **This plugin is a complementary companion to the [Habit Tracker 21](https://github.com/zoreet/habit-tracker) plugin.**
+>
+> Habit Tracker 21 renders a calendar heatmap from a note's `entries` property. Habit Checklist writes to that same `entries` property when you tick items off in your daily note — so the two work hand in hand: check off a habit here, and watch it light up in your Habit Tracker 21 grid. Point both plugins at the same routine notes to get a daily checklist *and* a long-term visual tracker with no duplicate bookkeeping.
+
 ## How it works
 
 Point the plugin at a root folder (default: `Routines`). Each subfolder becomes a collapsible section, and each note inside becomes a checklist item:
@@ -51,6 +57,7 @@ Each subtask renders as a nested checkbox under the habit. The parent and its su
 - Checking **every** subtask automatically checks the parent and logs the daily note's date into `entries`.
 - Unchecking any subtask automatically unchecks the parent and removes that date.
 - Checking or unchecking the parent toggles **all** subtasks at once.
+- If a note already has `entries` dates from before it had subtasks, those dates are automatically backfilled into every subtask on render, so the parent stays consistent.
 
 Per-subtask completion is stored in a plugin-managed `subtaskEntries` property so it survives reloads:
 
