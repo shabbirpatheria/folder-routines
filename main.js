@@ -236,10 +236,13 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       cls: "folder-routines-section folder-routines-root"
     });
     const header = section.createEl("h2", { cls: "folder-routines-heading" });
-    header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BE" });
-    header.createSpan({ text: "Habits" });
+    header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BC" });
+    header.createSpan({ cls: "folder-routines-banner", text: this.getCategoryIcon("Habits") });
+    header.createSpan({ cls: "folder-routines-heading-title", text: "Habits" });
+    this.createProgress(header);
     const body = section.createDiv({ cls: "folder-routines-body" });
     await this.renderFolder(root, body, dateStr, 3);
+    this.updateSectionProgress(section);
     header.addEventListener("click", () => {
       section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
     });
@@ -254,31 +257,146 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     const subfolders = children.filter(
       (c) => c instanceof import_obsidian.TFolder
     );
+    let index = 0;
     for (const file of files) {
-      await this.renderItem(file, container, dateStr);
+      index++;
+      await this.renderItem(file, container, dateStr, index);
     }
-    for (const sub of subfolders) {
+    for (let sectionIndex = 0; sectionIndex < subfolders.length; sectionIndex++) {
+      const sub = subfolders[sectionIndex];
       const section = container.createDiv({ cls: "folder-routines-section" });
+      const colorIndex = sectionIndex % FolderRoutinesPlugin.SECTION_COLORS;
+      section.addClass(`folder-routines-color-${colorIndex + 1}`);
       const tag = "h" + Math.min(depth, 6);
       const header = section.createEl(tag, { cls: "folder-routines-heading" });
-      header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BE" });
-      header.createSpan({ text: sub.name });
+      header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BC" });
+      header.createSpan({ cls: "folder-routines-banner", text: this.getCategoryIcon(sub.name) });
+      header.createSpan({ cls: "folder-routines-heading-title", text: sub.name });
+      this.createProgress(header);
       const body = section.createDiv({ cls: "folder-routines-body" });
       await this.renderFolder(sub, body, dateStr, depth + 1);
+      this.updateSectionProgress(section);
       header.addEventListener("click", () => {
         section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
       });
     }
   }
-  async renderItem(file, container, dateStr) {
+  createProgress(header) {
+    const progress = header.createDiv({ cls: "folder-routines-progress" });
+    const badge = progress.createDiv({ cls: "folder-routines-progress-badge" });
+    badge.createSpan({ cls: "folder-routines-progress-label", text: "QUESTS" });
+    badge.createSpan({ cls: "folder-routines-progress-count", text: "0/0" });
+    const bar = progress.createDiv({ cls: "folder-routines-progress-bar" });
+    for (let i = 0; i < FolderRoutinesPlugin.PROGRESS_BLOCKS; i++) {
+      bar.createDiv({ cls: "folder-routines-progress-block" });
+    }
+  }
+  updateSectionProgress(section) {
+    const checkboxes = Array.from(
+      section.querySelectorAll(".folder-routines-progress-checkbox")
+    );
+    const total = checkboxes.length;
+    const done = checkboxes.filter((checkbox) => checkbox.checked).length;
+    const progress = section.querySelector(
+      ":scope > .folder-routines-heading .folder-routines-progress"
+    );
+    if (!progress)
+      return;
+    const count = progress.querySelector(".folder-routines-progress-count");
+    if (count)
+      count.setText(`${done}/${total}`);
+    const blocks = Array.from(
+      progress.querySelectorAll(".folder-routines-progress-block")
+    );
+    const ratio = total === 0 ? 0 : done / total;
+    const filled = Math.round(ratio * blocks.length);
+    blocks.forEach((block, index) => {
+      block.toggleClass("is-filled", index < filled);
+    });
+    const wasComplete = section.hasClass("is-complete");
+    const isComplete = total > 0 && done === total;
+    section.toggleClass("is-complete", isComplete);
+    if (isComplete && !wasComplete) {
+      section.addClass("is-just-completed");
+      window.setTimeout(() => section.removeClass("is-just-completed"), 600);
+      this.showQuestBanner(section);
+    }
+  }
+  showQuestBanner(section) {
+    const header = section.querySelector(
+      ":scope > .folder-routines-heading"
+    );
+    if (!header)
+      return;
+    const banner = header.createDiv({
+      cls: "folder-routines-quest-banner",
+      text: "\u2605 QUEST COMPLETE \u2605"
+    });
+    window.setTimeout(() => banner.remove(), 1600);
+  }
+  showXpPopup(host) {
+    const popup = host.createSpan({
+      cls: "folder-routines-xp-popup",
+      text: "+5 XP"
+    });
+    window.setTimeout(() => popup.remove(), 900);
+  }
+  wireSelection(itemEl) {
+    const select = () => {
+      const root = itemEl.closest(".folder-routines");
+      root?.querySelectorAll(".is-selected").forEach((n) => n.removeClass("is-selected"));
+      itemEl.addClass("is-selected");
+    };
+    itemEl.addEventListener("pointerdown", select);
+    itemEl.addEventListener("focusin", select);
+  }
+  getCategoryIcon(name) {
+    const key = name.toLowerCase().trim();
+    const icons = {
+      habits: "\u2764",
+      routine: "\u{1F9ED}",
+      fitness: "\u{1F4AA}",
+      workout: "\u{1F3CB}",
+      walk: "\u{1F45F}",
+      namaz: "\u262A",
+      learning: "\u{1F4DA}",
+      reading: "\u{1F4D6}",
+      nutrition: "\u{1F34E}",
+      food: "\u{1F356}",
+      water: "\u{1F4A7}",
+      sleep: "\u{1F319}",
+      meditation: "\u{1F9D8}",
+      streaks: "\u{1F525}",
+      work: "\u{1F4BC}"
+    };
+    return icons[key] ?? "\u25C6";
+  }
+  updateAncestorProgress(from) {
+    let section = from.closest(".folder-routines-section");
+    while (section) {
+      this.updateSectionProgress(section);
+      section = section.parentElement?.closest(".folder-routines-section") ?? null;
+    }
+  }
+  async renderItem(file, container, dateStr, index = 0) {
     const subtasks = this.getSubtasks(file);
     const itemEl = container.createDiv({ cls: "folder-routines-item" });
+    itemEl.tabIndex = 0;
+    this.wireSelection(itemEl);
     const label = itemEl.createEl("label", { cls: "folder-routines-label" });
+    if (index > 0) {
+      label.createSpan({
+        cls: "folder-routines-index",
+        text: String(index).padStart(2, "0")
+      });
+    }
     const checkbox = label.createEl("input", {
       type: "checkbox"
     });
+    checkbox.classList.add("folder-routines-checkbox");
     label.createSpan({ text: file.basename, cls: "folder-routines-text" });
     if (subtasks.length === 0) {
+      checkbox.classList.add("folder-routines-progress-checkbox");
       checkbox.checked = this.isChecked(file, dateStr);
       itemEl.toggleClass("is-checked", checkbox.checked);
       checkbox.addEventListener("change", async () => {
@@ -287,16 +405,20 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         try {
           await this.setEntry(file, dateStr, target);
           itemEl.toggleClass("is-checked", target);
+          if (target)
+            this.showXpPopup(itemEl);
         } catch (e) {
           console.error("Folder Routines: failed to update frontmatter", e);
           new import_obsidian.Notice(`Folder Routines: failed to update ${file.basename}`);
           checkbox.checked = !target;
         } finally {
           checkbox.disabled = false;
+          this.updateAncestorProgress(itemEl);
         }
       });
       return;
     }
+    checkbox.classList.add("folder-routines-parent-checkbox");
     const subContainer = container.createDiv({ cls: "folder-routines-subtasks" });
     const subEls = [];
     const refreshParent = () => {
@@ -310,12 +432,18 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         s.checkbox.disabled = disabled;
     };
     const resolved = await this.reconcileSubtaskEntries(file, subtasks);
-    for (const name of subtasks) {
+    subtasks.forEach((name, subIndex) => {
       const subItem = subContainer.createDiv({ cls: "folder-routines-subtask" });
+      subItem.tabIndex = 0;
+      this.wireSelection(subItem);
+      if (subIndex === subtasks.length - 1)
+        subItem.addClass("is-last");
       const subLabel = subItem.createEl("label", { cls: "folder-routines-label" });
+      subLabel.createSpan({ cls: "folder-routines-tree", text: "" });
       const subCheckbox = subLabel.createEl("input", {
         type: "checkbox"
       });
+      subCheckbox.classList.add("folder-routines-checkbox", "folder-routines-progress-checkbox");
       subCheckbox.checked = (resolved[name] ?? []).includes(dateStr);
       subLabel.createSpan({ text: name, cls: "folder-routines-text" });
       subItem.toggleClass("is-checked", subCheckbox.checked);
@@ -326,6 +454,8 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         try {
           await this.setSubtaskEntry(file, name, dateStr, target, subtasks);
           subItem.toggleClass("is-checked", target);
+          if (target)
+            this.showXpPopup(subItem);
           refreshParent();
         } catch (e) {
           console.error("Folder Routines: failed to update frontmatter", e);
@@ -333,9 +463,10 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           subCheckbox.checked = !target;
         } finally {
           setAllDisabled(false);
+          this.updateAncestorProgress(subItem);
         }
       });
-    }
+    });
     refreshParent();
     checkbox.addEventListener("change", async () => {
       const target = checkbox.checked;
@@ -353,10 +484,13 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         checkbox.checked = !target;
       } finally {
         setAllDisabled(false);
+        this.updateAncestorProgress(itemEl);
       }
     });
   }
 };
+FolderRoutinesPlugin.PROGRESS_BLOCKS = 10;
+FolderRoutinesPlugin.SECTION_COLORS = 5;
 var FolderRoutinesSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);

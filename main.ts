@@ -273,11 +273,14 @@ export default class FolderRoutinesPlugin extends Plugin {
       cls: "folder-routines-section folder-routines-root",
     });
     const header = section.createEl("h2", { cls: "folder-routines-heading" });
-    header.createSpan({ cls: "folder-routines-collapse-icon", text: "▾" });
-    header.createSpan({ text: "Habits" });
+    header.createSpan({ cls: "folder-routines-collapse-icon", text: "▼" });
+    header.createSpan({ cls: "folder-routines-banner", text: this.getCategoryIcon("Habits") });
+    header.createSpan({ cls: "folder-routines-heading-title", text: "Habits" });
+    this.createProgress(header);
 
     const body = section.createDiv({ cls: "folder-routines-body" });
     await this.renderFolder(root, body, dateStr, 3);
+    this.updateSectionProgress(section);
 
     header.addEventListener("click", () => {
       section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
@@ -300,19 +303,27 @@ export default class FolderRoutinesPlugin extends Plugin {
       (c): c is TFolder => c instanceof TFolder
     );
 
+    let index = 0;
     for (const file of files) {
-      await this.renderItem(file, container, dateStr);
+      index++;
+      await this.renderItem(file, container, dateStr, index);
     }
 
-    for (const sub of subfolders) {
+    for (let sectionIndex = 0; sectionIndex < subfolders.length; sectionIndex++) {
+      const sub = subfolders[sectionIndex];
       const section = container.createDiv({ cls: "folder-routines-section" });
+      const colorIndex = sectionIndex % FolderRoutinesPlugin.SECTION_COLORS;
+      section.addClass(`folder-routines-color-${colorIndex + 1}`);
       const tag = ("h" + Math.min(depth, 6)) as keyof HTMLElementTagNameMap;
       const header = section.createEl(tag, { cls: "folder-routines-heading" });
-      header.createSpan({ cls: "folder-routines-collapse-icon", text: "▾" });
-      header.createSpan({ text: sub.name });
+      header.createSpan({ cls: "folder-routines-collapse-icon", text: "▼" });
+      header.createSpan({ cls: "folder-routines-banner", text: this.getCategoryIcon(sub.name) });
+      header.createSpan({ cls: "folder-routines-heading-title", text: sub.name });
+      this.createProgress(header);
 
       const body = section.createDiv({ cls: "folder-routines-body" });
       await this.renderFolder(sub, body, dateStr, depth + 1);
+      this.updateSectionProgress(section);
 
       header.addEventListener("click", () => {
         section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
@@ -320,16 +331,140 @@ export default class FolderRoutinesPlugin extends Plugin {
     }
   }
 
-  private async renderItem(file: TFile, container: HTMLElement, dateStr: string) {
+  private static readonly PROGRESS_BLOCKS = 10;
+  private static readonly SECTION_COLORS = 5;
+
+  private createProgress(header: HTMLElement) {
+    const progress = header.createDiv({ cls: "folder-routines-progress" });
+    const badge = progress.createDiv({ cls: "folder-routines-progress-badge" });
+    badge.createSpan({ cls: "folder-routines-progress-label", text: "QUESTS" });
+    badge.createSpan({ cls: "folder-routines-progress-count", text: "0/0" });
+    const bar = progress.createDiv({ cls: "folder-routines-progress-bar" });
+    for (let i = 0; i < FolderRoutinesPlugin.PROGRESS_BLOCKS; i++) {
+      bar.createDiv({ cls: "folder-routines-progress-block" });
+    }
+  }
+
+  private updateSectionProgress(section: HTMLElement) {
+    const checkboxes = Array.from(
+      section.querySelectorAll<HTMLInputElement>(".folder-routines-progress-checkbox")
+    );
+    const total = checkboxes.length;
+    const done = checkboxes.filter((checkbox) => checkbox.checked).length;
+    const progress = section.querySelector<HTMLElement>(
+      ":scope > .folder-routines-heading .folder-routines-progress"
+    );
+    if (!progress) return;
+
+    const count = progress.querySelector<HTMLElement>(".folder-routines-progress-count");
+    if (count) count.setText(`${done}/${total}`);
+
+    const blocks = Array.from(
+      progress.querySelectorAll<HTMLElement>(".folder-routines-progress-block")
+    );
+    const ratio = total === 0 ? 0 : done / total;
+    const filled = Math.round(ratio * blocks.length);
+    blocks.forEach((block, index) => {
+      block.toggleClass("is-filled", index < filled);
+    });
+
+    const wasComplete = section.hasClass("is-complete");
+    const isComplete = total > 0 && done === total;
+    section.toggleClass("is-complete", isComplete);
+    if (isComplete && !wasComplete) {
+      section.addClass("is-just-completed");
+      window.setTimeout(() => section.removeClass("is-just-completed"), 600);
+      this.showQuestBanner(section);
+    }
+  }
+
+  private showQuestBanner(section: HTMLElement) {
+    const header = section.querySelector<HTMLElement>(
+      ":scope > .folder-routines-heading"
+    );
+    if (!header) return;
+    const banner = header.createDiv({
+      cls: "folder-routines-quest-banner",
+      text: "★ QUEST COMPLETE ★",
+    });
+    window.setTimeout(() => banner.remove(), 1600);
+  }
+
+  private showXpPopup(host: HTMLElement) {
+    const popup = host.createSpan({
+      cls: "folder-routines-xp-popup",
+      text: "+5 XP",
+    });
+    window.setTimeout(() => popup.remove(), 900);
+  }
+
+  private getCategoryIcon(name: string): string {
+    const key = name.toLowerCase().trim();
+    const icons: Record<string, string> = {
+      habits: "❤",
+      routine: "🧭",
+      fitness: "💪",
+      workout: "🏋",
+      walk: "👟",
+      namaz: "☪",
+      learning: "📚",
+      reading: "📖",
+      nutrition: "🍎",
+      food: "🍖",
+      water: "💧",
+      sleep: "🌙",
+      meditation: "🧘",
+      streaks: "🔥",
+      work: "💼",
+    };
+    return icons[key] ?? "◆";
+  }
+
+  private updateAncestorProgress(from: HTMLElement) {
+    let section = from.closest<HTMLElement>(".folder-routines-section");
+    while (section) {
+      this.updateSectionProgress(section);
+      section = section.parentElement?.closest<HTMLElement>(".folder-routines-section") ?? null;
+    }
+  }
+
+  private wireSelection(itemEl: HTMLElement) {
+    const select = () => {
+      const root = itemEl.closest<HTMLElement>(".folder-routines");
+      root
+        ?.querySelectorAll(".is-selected")
+        .forEach((n) => n.removeClass("is-selected"));
+      itemEl.addClass("is-selected");
+    };
+    itemEl.addEventListener("pointerdown", select);
+    itemEl.addEventListener("focusin", select);
+  }
+
+  private async renderItem(
+    file: TFile,
+    container: HTMLElement,
+    dateStr: string,
+    index = 0
+  ) {
     const subtasks = this.getSubtasks(file);
     const itemEl = container.createDiv({ cls: "folder-routines-item" });
+    itemEl.tabIndex = 0;
+    this.wireSelection(itemEl);
     const label = itemEl.createEl("label", { cls: "folder-routines-label" });
+    if (index > 0) {
+      label.createSpan({
+        cls: "folder-routines-index",
+        text: String(index).padStart(2, "0"),
+      });
+    }
     const checkbox = label.createEl("input", {
       type: "checkbox",
     }) as HTMLInputElement;
+    checkbox.classList.add("folder-routines-checkbox");
     label.createSpan({ text: file.basename, cls: "folder-routines-text" });
 
     if (subtasks.length === 0) {
+      checkbox.classList.add("folder-routines-progress-checkbox");
       checkbox.checked = this.isChecked(file, dateStr);
       itemEl.toggleClass("is-checked", checkbox.checked);
 
@@ -339,16 +474,20 @@ export default class FolderRoutinesPlugin extends Plugin {
         try {
           await this.setEntry(file, dateStr, target);
           itemEl.toggleClass("is-checked", target);
+          if (target) this.showXpPopup(itemEl);
         } catch (e) {
           console.error("Folder Routines: failed to update frontmatter", e);
           new Notice(`Folder Routines: failed to update ${file.basename}`);
           checkbox.checked = !target;
         } finally {
           checkbox.disabled = false;
+          this.updateAncestorProgress(itemEl);
         }
       });
       return;
     }
+
+    checkbox.classList.add("folder-routines-parent-checkbox");
 
     const subContainer = container.createDiv({ cls: "folder-routines-subtasks" });
     const subEls: { name: string; el: HTMLElement; checkbox: HTMLInputElement }[] = [];
@@ -366,12 +505,17 @@ export default class FolderRoutinesPlugin extends Plugin {
 
     const resolved = await this.reconcileSubtaskEntries(file, subtasks);
 
-    for (const name of subtasks) {
+    subtasks.forEach((name, subIndex) => {
       const subItem = subContainer.createDiv({ cls: "folder-routines-subtask" });
+      subItem.tabIndex = 0;
+      this.wireSelection(subItem);
+      if (subIndex === subtasks.length - 1) subItem.addClass("is-last");
       const subLabel = subItem.createEl("label", { cls: "folder-routines-label" });
+      subLabel.createSpan({ cls: "folder-routines-tree", text: "" });
       const subCheckbox = subLabel.createEl("input", {
         type: "checkbox",
       }) as HTMLInputElement;
+      subCheckbox.classList.add("folder-routines-checkbox", "folder-routines-progress-checkbox");
       subCheckbox.checked = (resolved[name] ?? []).includes(dateStr);
       subLabel.createSpan({ text: name, cls: "folder-routines-text" });
       subItem.toggleClass("is-checked", subCheckbox.checked);
@@ -383,6 +527,7 @@ export default class FolderRoutinesPlugin extends Plugin {
         try {
           await this.setSubtaskEntry(file, name, dateStr, target, subtasks);
           subItem.toggleClass("is-checked", target);
+          if (target) this.showXpPopup(subItem);
           refreshParent();
         } catch (e) {
           console.error("Folder Routines: failed to update frontmatter", e);
@@ -390,9 +535,10 @@ export default class FolderRoutinesPlugin extends Plugin {
           subCheckbox.checked = !target;
         } finally {
           setAllDisabled(false);
+          this.updateAncestorProgress(subItem);
         }
       });
-    }
+    });
 
     refreshParent();
 
@@ -412,6 +558,7 @@ export default class FolderRoutinesPlugin extends Plugin {
         checkbox.checked = !target;
       } finally {
         setAllDisabled(false);
+        this.updateAncestorProgress(itemEl);
       }
     });
   }
