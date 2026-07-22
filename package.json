@@ -1,6 +1,6 @@
 {
   "name": "folder-routines",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Render a checklist in your daily note from a folder structure and log dates into routine notes.",
   "main": "main.js",
   "scripts": {

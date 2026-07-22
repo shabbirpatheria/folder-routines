@@ -55,11 +55,22 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       "routines",
       (source, el, ctx) => this.renderRoutines(el, ctx)
     );
+    this.registerMarkdownCodeBlockProcessor(
+      "routine-stats",
+      (source, el) => this.renderStats(source, el)
+    );
     this.addCommand({
       id: "insert-routines-block",
       name: "Insert routines checklist block",
       editorCallback: (editor, _view) => {
         editor.replaceSelection("```routines\n```\n");
+      }
+    });
+    this.addCommand({
+      id: "insert-routine-stats-block",
+      name: "Insert routine stats board",
+      editorCallback: (editor, _view) => {
+        editor.replaceSelection("```routine-stats\n```\n");
       }
     });
     this.addSettingTab(new FolderRoutinesSettingTab(this.app, this));
@@ -350,26 +361,8 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     itemEl.addEventListener("pointerdown", select);
     itemEl.addEventListener("focusin", select);
   }
-  getCategoryIcon(name) {
-    const key = name.toLowerCase().trim();
-    const icons = {
-      habits: "\u2764",
-      routine: "\u{1F9ED}",
-      fitness: "\u{1F4AA}",
-      workout: "\u{1F3CB}",
-      walk: "\u{1F45F}",
-      namaz: "\u262A",
-      learning: "\u{1F4DA}",
-      reading: "\u{1F4D6}",
-      nutrition: "\u{1F34E}",
-      food: "\u{1F356}",
-      water: "\u{1F4A7}",
-      sleep: "\u{1F319}",
-      meditation: "\u{1F9D8}",
-      streaks: "\u{1F525}",
-      work: "\u{1F4BC}"
-    };
-    return icons[key] ?? "\u25C6";
+  getCategoryIcon(_name) {
+    return "\u25C6";
   }
   updateAncestorProgress(from) {
     let section = from.closest(".folder-routines-section");
@@ -486,6 +479,313 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         setAllDisabled(false);
         this.updateAncestorProgress(itemEl);
       }
+    });
+  }
+  getEntryDates(file) {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return new Set(this.normalizeEntries(fm?.[this.settings.entriesProperty]));
+  }
+  collectSectionFiles(folder) {
+    return [...folder.children].filter(
+      (c) => c instanceof import_obsidian.TFile && c.extension === "md"
+    ).sort((a, b) => a.name.localeCompare(b.name));
+  }
+  bestStreak(flags) {
+    let best = 0;
+    let run = 0;
+    for (const f of flags) {
+      run = f ? run + 1 : 0;
+      if (run > best)
+        best = run;
+    }
+    return best;
+  }
+  currentStreak(flags) {
+    let run = 0;
+    for (let i = flags.length - 1; i >= 0; i--) {
+      if (flags[i])
+        run++;
+      else
+        break;
+    }
+    return run;
+  }
+  rankFor(pct) {
+    if (pct >= 95)
+      return "S";
+    if (pct >= 85)
+      return "A";
+    if (pct >= 70)
+      return "B";
+    if (pct >= 50)
+      return "C";
+    if (pct >= 25)
+      return "D";
+    return "E";
+  }
+  sparkline(perDay, routines) {
+    const glyphs = ["\u2581", "\u2582", "\u2583", "\u2584", "\u2585", "\u2586", "\u2587", "\u2588"];
+    if (routines <= 0)
+      return "";
+    return perDay.map((v) => {
+      const ratio = Math.max(0, Math.min(1, v / routines));
+      const idx = v === 0 ? 0 : Math.max(1, Math.round(ratio * (glyphs.length - 1)));
+      return glyphs[idx];
+    }).join("");
+  }
+  async renderStats(source, el) {
+    el.empty();
+    const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
+    if (!(root instanceof import_obsidian.TFolder)) {
+      el.createDiv({
+        cls: "folder-routines-error",
+        text: `Folder Routines: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`
+      });
+      return;
+    }
+    const container = el.createDiv({ cls: "folder-routines routine-stats" });
+    const toolbar = container.createDiv({ cls: "routine-stats-toolbar" });
+    toolbar.createSpan({ cls: "routine-stats-toolbar-title", text: "STATS" });
+    toolbar.createSpan({ cls: "routine-stats-toolbar-range", text: "21 DAYS" });
+    const boards = container.createDiv({ cls: "routine-stats-boards" });
+    this.renderStatsBoards(boards, root, 21);
+  }
+  renderStatsBoards(host, root, days) {
+    host.empty();
+    const today = (0, import_obsidian.moment)().startOf("day");
+    const dateStrs = [];
+    const labels = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = today.clone().subtract(i, "days");
+      dateStrs.push(d.format(this.settings.storeDateFormat || "YYYY-MM-DD"));
+      labels.push(d.format("D"));
+    }
+    const sections = [];
+    const rootFiles = this.collectSectionFiles(root);
+    if (rootFiles.length)
+      sections.push({ name: root.name, files: rootFiles });
+    const subfolders = [...root.children].filter(
+      (c) => c instanceof import_obsidian.TFolder
+    ).sort((a, b) => a.name.localeCompare(b.name));
+    for (const sub of subfolders) {
+      const files = this.collectSectionFiles(sub);
+      if (files.length)
+        sections.push({ name: sub.name, files });
+    }
+    if (sections.length === 0) {
+      host.createDiv({
+        cls: "folder-routines-error",
+        text: "Folder Routines: no routine notes found."
+      });
+      return;
+    }
+    const weekdays = ["S", "M", "T", "W", "T", "F", "S"];
+    sections.forEach((section, sectionIndex) => {
+      const colorIndex = sectionIndex % FolderRoutinesPlugin.SECTION_COLORS;
+      const board = host.createDiv({
+        cls: `folder-routines-section routine-stats-board folder-routines-color-${colorIndex + 1}`
+      });
+      const rows = section.files.map((file) => {
+        const dates = this.getEntryDates(file);
+        const flags = dateStrs.map((ds) => dates.has(ds));
+        return { file, flags, done: flags.filter(Boolean).length };
+      });
+      const perDay = dateStrs.map(
+        (_, di) => rows.filter((r) => r.flags[di]).length
+      );
+      const sectionDone = rows.reduce((s, r) => s + r.done, 0);
+      const sectionTotal = section.files.length * days || 1;
+      const pct = Math.round(sectionDone / sectionTotal * 100);
+      const rank = this.rankFor(pct);
+      const xp = sectionDone * 5;
+      const level = Math.max(1, Math.floor(xp / 100) + 1);
+      const perfectDay = perDay.map((v) => v === section.files.length && v > 0);
+      const curStreak = this.currentStreak(perfectDay);
+      const bestStreak = Math.max(
+        ...rows.map((r) => this.bestStreak(r.flags)),
+        this.bestStreak(perfectDay)
+      );
+      const missed = sectionTotal - sectionDone;
+      const header = board.createDiv({ cls: "folder-routines-heading routine-stats-head" });
+      header.createSpan({
+        cls: "folder-routines-banner",
+        text: this.getCategoryIcon(section.name)
+      });
+      const headMain = header.createDiv({ cls: "routine-stats-head-main" });
+      headMain.createSpan({
+        cls: "folder-routines-heading-title",
+        text: section.name
+      });
+      const headMeta = headMain.createDiv({ cls: "routine-stats-head-meta" });
+      headMeta.createSpan({ cls: "routine-stats-lvl", text: `LV.${level}` });
+      headMeta.createSpan({ text: `\u{1F525} ${curStreak}` });
+      headMeta.createSpan({ text: `${pct}%` });
+      header.createDiv({ cls: "routine-stats-rank", text: rank });
+      const summary = board.createDiv({ cls: "routine-stats-summary" });
+      const stat = (icon, label, value, mod = "") => {
+        const s = summary.createDiv({ cls: `routine-stats-stat ${mod}` });
+        s.createSpan({ cls: "routine-stats-stat-icon", text: icon });
+        const b = s.createDiv({ cls: "routine-stats-stat-body" });
+        b.createSpan({ cls: "routine-stats-stat-label", text: label });
+        b.createSpan({ cls: "routine-stats-stat-value", text: value });
+      };
+      stat("\u{1F525}", "BEST", String(bestStreak), "is-best");
+      stat("\u26A1", "STREAK", String(curStreak), "is-streak");
+      stat("\u{1F3C6}", "DONE", `${pct}%`, "is-done");
+      stat("\u2B50", "XP", `+${xp}`, "is-xp");
+      const hud = board.createDiv({ cls: "routine-stats-hud" });
+      hud.createSpan({ cls: "routine-stats-hud-label", text: "COMPLETION" });
+      const hudBar = hud.createDiv({ cls: "routine-stats-hud-bar" });
+      const hudBlocks = 10;
+      const hudFilled = Math.round(pct / 100 * hudBlocks);
+      for (let i = 0; i < hudBlocks; i++) {
+        const blk = hudBar.createDiv({ cls: "routine-stats-hud-block" });
+        blk.toggleClass("is-filled", i < hudFilled);
+        blk.style.setProperty("--fr-blk", String(i));
+      }
+      hud.createSpan({ cls: "routine-stats-hud-pct", text: `${pct}%` });
+      const weeks = Math.ceil(days / 7);
+      const grid = board.createDiv({ cls: "routine-stats-grid" });
+      grid.style.setProperty("--fr-stats-days", String(days));
+      grid.style.setProperty("--fr-stats-weeks", String(weeks));
+      grid.createDiv({ cls: "routine-stats-cell routine-stats-corner" });
+      dateStrs.forEach((ds, di) => {
+        const wd = (0, import_obsidian.moment)(ds, this.settings.storeDateFormat || "YYYY-MM-DD").day();
+        const cell = grid.createDiv({
+          cls: "routine-stats-cell routine-stats-daylabel",
+          text: weekdays[wd]
+        });
+        if (di % 7 === 0 && di !== 0)
+          cell.addClass("is-weekstart");
+        if (di === days - 1)
+          cell.addClass("is-today-col");
+      });
+      grid.createDiv({
+        cls: "routine-stats-cell routine-stats-daylabel routine-stats-total-head",
+        text: "\u03A3"
+      });
+      rows.forEach((row) => {
+        grid.createDiv({
+          cls: "routine-stats-cell routine-stats-rowlabel",
+          text: row.file.basename
+        });
+        row.flags.forEach((done, di) => {
+          const cell = grid.createDiv({
+            cls: "routine-stats-cell routine-stats-day is-clickable"
+          });
+          cell.toggleClass("is-done", done);
+          if (di % 7 === 0 && di !== 0)
+            cell.addClass("is-weekstart");
+          if (di === days - 1)
+            cell.addClass("is-today-col");
+          const ds = dateStrs[di];
+          cell.setAttr("aria-label", `${row.file.basename} \u00B7 ${ds}`);
+          cell.setAttr("role", "button");
+          cell.tabIndex = 0;
+          const toggle = async () => {
+            if (cell.hasClass("is-busy"))
+              return;
+            cell.addClass("is-busy");
+            const target = !cell.hasClass("is-done");
+            try {
+              const subtasks = this.getSubtasks(row.file);
+              if (subtasks.length > 0) {
+                await this.setParentToggleAll(row.file, ds, target, subtasks);
+              } else {
+                await this.setEntry(row.file, ds, target);
+              }
+              this.renderStatsBoards(host, root, days);
+            } catch (e) {
+              console.error("Folder Routines: failed to update entry", e);
+              new import_obsidian.Notice(`Folder Routines: failed to update ${row.file.basename}`);
+              cell.removeClass("is-busy");
+            }
+          };
+          cell.addEventListener("click", toggle);
+          cell.addEventListener("keydown", (evt) => {
+            if (evt.key === "Enter" || evt.key === " ") {
+              evt.preventDefault();
+              toggle();
+            }
+          });
+        });
+        grid.createDiv({
+          cls: "routine-stats-cell routine-stats-rowtotal",
+          text: `${row.done}/${days}`
+        });
+      });
+      const milestones = board.createDiv({ cls: "routine-stats-weeks" });
+      for (let w = 0; w < weeks; w++) {
+        const start = w * 7;
+        const end = Math.min(start + 7, days);
+        const span = end - start;
+        const cellsInWeek = span * section.files.length || 1;
+        let weekDone = 0;
+        for (let di = start; di < end; di++)
+          weekDone += perDay[di];
+        const wpct = Math.round(weekDone / cellsInWeek * 100);
+        const stars = Math.max(0, Math.min(5, Math.round(wpct / 20)));
+        const wrank = this.rankFor(wpct);
+        const chip = milestones.createDiv({ cls: "routine-stats-week-chip" });
+        chip.toggleClass("is-perfect", wpct === 100);
+        chip.createSpan({
+          cls: "routine-stats-week-name",
+          text: `WK ${w + 1}`
+        });
+        chip.createSpan({
+          cls: "routine-stats-week-stars",
+          text: "\u2605".repeat(stars) + "\u2606".repeat(5 - stars)
+        });
+        chip.createSpan({
+          cls: "routine-stats-week-rank",
+          text: wpct === 100 ? "PERFECT" : wrank
+        });
+      }
+      const trend = board.createDiv({ cls: "routine-stats-trend" });
+      trend.createSpan({ cls: "routine-stats-trend-label", text: "TREND" });
+      trend.createSpan({
+        cls: "routine-stats-trend-spark",
+        text: this.sparkline(perDay, section.files.length)
+      });
+      const footer = board.createDiv({ cls: "routine-stats-footer" });
+      const fstat = (label, value) => {
+        const f = footer.createDiv({ cls: "routine-stats-fstat" });
+        f.createSpan({ cls: "routine-stats-fstat-value", text: value });
+        f.createSpan({ cls: "routine-stats-fstat-label", text: label });
+      };
+      fstat("BEST STREAK", `${bestStreak}d`);
+      fstat("SUCCESS", `${pct}%`);
+      fstat("MISSED", `${missed}`);
+      fstat("XP GAINED", `+${xp}`);
+      const achievements = [];
+      if (sectionDone > 0)
+        achievements.push({ icon: "\u2B50", text: "First Clear" });
+      if (curStreak >= 7 || bestStreak >= 7)
+        achievements.push({ icon: "\u26A1", text: "7-Day Streak" });
+      if (perfectDay.some((p) => p))
+        achievements.push({ icon: "\u{1F3C6}", text: "Perfect Day" });
+      if (perfectDay.slice(-7).every((p) => p) && days >= 7)
+        achievements.push({ icon: "\u{1F451}", text: "Perfect Week" });
+      if (pct === 100)
+        achievements.push({ icon: "\u{1F48E}", text: "100% Complete" });
+      if (achievements.length) {
+        const ach = board.createDiv({ cls: "routine-stats-achievements" });
+        achievements.forEach((a) => {
+          const badge = ach.createDiv({ cls: "routine-stats-badge" });
+          badge.createSpan({ cls: "routine-stats-badge-icon", text: a.icon });
+          badge.createSpan({ cls: "routine-stats-badge-text", text: a.text });
+        });
+      }
+      const legend = board.createDiv({ cls: "routine-stats-legend" });
+      const leg = (cls, text) => {
+        const l = legend.createDiv({ cls: "routine-stats-legend-item" });
+        l.createSpan({ cls: `routine-stats-legend-swatch ${cls}` });
+        l.createSpan({ text });
+      };
+      leg("is-done", "Done");
+      leg("is-missed", "Missed");
+      leg("is-today", "Today");
+      leg("is-perfect", "Perfect");
     });
   }
 };
