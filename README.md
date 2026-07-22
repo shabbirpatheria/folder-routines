@@ -1,4 +1,4 @@
-# Habit Checklist
+# Pixel Habits
 
 An [Obsidian](https://obsidian.md) plugin that turns a folder of routine notes into an interactive, retro **16-bit RPG-style** habit checklist and stats screen. Checking an item off logs the daily note's date into that routine note — and a companion stats board visualizes your consistency like a JRPG character screen.
 
@@ -120,7 +120,7 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 
 ### From the Community Plugins browser
 
-Once accepted: Settings → Community plugins → Browse → search for "Habit Checklist".
+Once accepted: Settings → Community plugins → Browse → search for "Pixel Habits".
 
 ### Manual
 
