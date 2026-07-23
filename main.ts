@@ -840,10 +840,38 @@ export default class FolderRoutinesPlugin extends Plugin {
               cell.removeClass("is-busy");
             }
           };
+          // Tap detection: only toggle if the pointer barely moved between
+          // down and up, so vertical/horizontal scrolling isn't hijacked.
+          let startX = 0;
+          let startY = 0;
+          let tracking = false;
+          const MOVE_TOLERANCE = 10;
           cell.addEventListener("pointerdown", (evt: PointerEvent) => {
-            evt.preventDefault();
-            evt.stopPropagation();
-            toggle();
+            tracking = true;
+            startX = evt.clientX;
+            startY = evt.clientY;
+          });
+          cell.addEventListener("pointermove", (evt: PointerEvent) => {
+            if (!tracking) return;
+            if (
+              Math.abs(evt.clientX - startX) > MOVE_TOLERANCE ||
+              Math.abs(evt.clientY - startY) > MOVE_TOLERANCE
+            ) {
+              tracking = false; // treat as a scroll/drag, not a tap
+            }
+          });
+          cell.addEventListener("pointerup", (evt: PointerEvent) => {
+            if (!tracking) return;
+            tracking = false;
+            if (
+              Math.abs(evt.clientX - startX) <= MOVE_TOLERANCE &&
+              Math.abs(evt.clientY - startY) <= MOVE_TOLERANCE
+            ) {
+              toggle();
+            }
+          });
+          cell.addEventListener("pointercancel", () => {
+            tracking = false;
           });
           cell.addEventListener("keydown", (evt: KeyboardEvent) => {
             if (evt.key === "Enter" || evt.key === " ") {
