@@ -568,6 +568,20 @@ export default class FolderRoutinesPlugin extends Plugin {
     return new Set(this.normalizeEntries(fm?.[this.settings.entriesProperty]));
   }
 
+  /* Poll the metadata cache until it reflects the just-written entry state,
+     so a re-render doesn't read stale frontmatter. */
+  private async waitForEntryState(
+    file: TFile,
+    dateStr: string,
+    expected: boolean,
+    tries = 20
+  ): Promise<void> {
+    for (let i = 0; i < tries; i++) {
+      if (this.getEntryDates(file).has(dateStr) === expected) return;
+      await new Promise((r) => window.setTimeout(r, 25));
+    }
+  }
+
   private collectSectionFiles(folder: TFolder): TFile[] {
     return [...folder.children]
       .filter((c): c is TFile => c instanceof TFile && c.extension === "md")
@@ -756,16 +770,26 @@ export default class FolderRoutinesPlugin extends Plugin {
       const grid = board.createDiv({ cls: "routine-stats-grid" });
       grid.style.setProperty("--fr-stats-days", String(days));
       grid.style.setProperty("--fr-stats-weeks", String(weeks));
+      // build column template with a spacer column before each new week
+      const dayCols: string[] = [];
+      for (let di = 0; di < days; di++) {
+        if (di % 7 === 0 && di !== 0) dayCols.push("0.4rem");
+        dayCols.push("1.15rem");
+      }
+      grid.style.gridTemplateColumns = `minmax(3.5rem, 6rem) ${dayCols.join(
+        " "
+      )} auto`;
 
       // day-of-week header row
       grid.createDiv({ cls: "routine-stats-cell routine-stats-corner" });
       dateStrs.forEach((ds, di) => {
+        if (di % 7 === 0 && di !== 0)
+          grid.createDiv({ cls: "routine-stats-spacer" });
         const wd = moment(ds, this.settings.storeDateFormat || "YYYY-MM-DD").day();
         const cell = grid.createDiv({
           cls: "routine-stats-cell routine-stats-daylabel",
           text: weekdays[wd],
         });
-        if (di % 7 === 0 && di !== 0) cell.addClass("is-weekstart");
         if (di === days - 1) cell.addClass("is-today-col");
       });
       grid.createDiv({
@@ -779,11 +803,12 @@ export default class FolderRoutinesPlugin extends Plugin {
           text: row.file.basename,
         });
         row.flags.forEach((done, di) => {
+          if (di % 7 === 0 && di !== 0)
+            grid.createDiv({ cls: "routine-stats-spacer" });
           const cell = grid.createDiv({
             cls: "routine-stats-cell routine-stats-day is-clickable",
           });
           cell.toggleClass("is-done", done);
-          if (di % 7 === 0 && di !== 0) cell.addClass("is-weekstart");
           if (di === days - 1) cell.addClass("is-today-col");
           const ds = dateStrs[di];
           cell.setAttr("aria-label", `${row.file.basename} · ${ds}`);
@@ -794,6 +819,9 @@ export default class FolderRoutinesPlugin extends Plugin {
             if (cell.hasClass("is-busy")) return;
             cell.addClass("is-busy");
             const target = !cell.hasClass("is-done");
+            // optimistic UI so the clicked cell reflects the change instantly
+            cell.toggleClass("is-done", target);
+            cell.toggleClass("is-missed", !target);
             try {
               const subtasks = this.getSubtasks(row.file);
               if (subtasks.length > 0) {
@@ -801,14 +829,22 @@ export default class FolderRoutinesPlugin extends Plugin {
               } else {
                 await this.setEntry(row.file, ds, target);
               }
+              // wait for the metadata cache to reflect the write, then re-render
+              await this.waitForEntryState(row.file, ds, target);
               this.renderStatsBoards(host, root, days);
             } catch (e) {
               console.error("Folder Routines: failed to update entry", e);
               new Notice(`Folder Routines: failed to update ${row.file.basename}`);
+              cell.toggleClass("is-done", !target);
+              cell.toggleClass("is-missed", target);
               cell.removeClass("is-busy");
             }
           };
-          cell.addEventListener("click", toggle);
+          cell.addEventListener("pointerdown", (evt: PointerEvent) => {
+            evt.preventDefault();
+            evt.stopPropagation();
+            toggle();
+          });
           cell.addEventListener("keydown", (evt: KeyboardEvent) => {
             if (evt.key === "Enter" || evt.key === " ") {
               evt.preventDefault();

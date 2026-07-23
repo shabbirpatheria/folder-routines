@@ -1,7 +1,7 @@
 {
   "id": "folder-routines",
   "name": "Pixel Habits",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "minAppVersion": "1.4.4",
   "description": "Render a checklist in your daily note from a folder structure. Checking an item logs the daily note's date into that note's 'entries' property.",
   "author": "shabbirpatheria",
