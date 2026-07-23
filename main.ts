@@ -776,7 +776,7 @@ export default class FolderRoutinesPlugin extends Plugin {
         if (di % 7 === 0 && di !== 0) dayCols.push("0.4rem");
         dayCols.push("1.15rem");
       }
-      grid.style.gridTemplateColumns = `minmax(3.5rem, 6rem) ${dayCols.join(
+      grid.style.gridTemplateColumns = `max-content ${dayCols.join(
         " "
       )} auto`;
 
@@ -884,6 +884,11 @@ export default class FolderRoutinesPlugin extends Plugin {
           cls: "routine-stats-cell routine-stats-rowtotal",
           text: `${row.done}/${days}`,
         });
+      });
+
+      // start scrolled to the far right (most recent days / today)
+      window.requestAnimationFrame(() => {
+        grid.scrollLeft = grid.scrollWidth;
       });
 
       /* ---- weekly milestones ---- */

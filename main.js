@@ -661,7 +661,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           dayCols.push("0.4rem");
         dayCols.push("1.15rem");
       }
-      grid.style.gridTemplateColumns = `minmax(3.5rem, 6rem) ${dayCols.join(" ")} auto`;
+      grid.style.gridTemplateColumns = `max-content ${dayCols.join(" ")} auto`;
       grid.createDiv({ cls: "routine-stats-cell routine-stats-corner" });
       dateStrs.forEach((ds, di) => {
         if (di % 7 === 0 && di !== 0)
@@ -758,6 +758,9 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           cls: "routine-stats-cell routine-stats-rowtotal",
           text: `${row.done}/${days}`
         });
+      });
+      window.requestAnimationFrame(() => {
+        grid.scrollLeft = grid.scrollWidth;
       });
       const milestones = board.createDiv({ cls: "routine-stats-weeks" });
       for (let w = 0; w < weeks; w++) {

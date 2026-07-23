@@ -912,7 +912,7 @@
 .routine-stats-grid {
   display: grid;
   grid-template-columns:
-    minmax(3.5rem, 6rem)
+    max-content
     repeat(var(--fr-stats-days), 1.15rem)
     auto;
   justify-content: start;
@@ -946,7 +946,12 @@
   font-weight: 700;
 }
 .routine-stats-corner {
-  background: transparent;
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--fr-list-bg);
+  box-shadow: 2px 0 0 0 var(--fr-line-dark),
+    6px 0 6px -4px rgba(0, 0, 0, 0.5);
 }
 .routine-stats-daylabel {
   color: var(--fr-ink-muted);
@@ -983,16 +988,23 @@
   opacity: 1;
 }
 .routine-stats-rowlabel {
-  justify-self: start;
-  place-items: center start;
-  padding-right: 0.5rem;
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-self: stretch;
+  align-self: stretch;
+  height: 100%;
+  padding-right: 0.7rem;
   color: var(--fr-ink-light);
   font-size: 0.76rem;
   font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  /* fully opaque plate that always covers the text on top of the cells */
+  background: var(--fr-list-bg);
+  box-shadow: 2px 0 0 0 var(--fr-line-dark),
+    6px 0 6px -4px rgba(0, 0, 0, 0.5);
 }
 .routine-stats-day {
   width: 1.15rem;
