@@ -18,6 +18,7 @@ interface FolderRoutinesSettings {
   storeDateFormat: string;
   subtasksProperty: string;
   subtaskEntriesProperty: string;
+  pixelCalendarProperty: string;
 }
 
 const DEFAULT_SETTINGS: FolderRoutinesSettings = {
@@ -26,7 +27,33 @@ const DEFAULT_SETTINGS: FolderRoutinesSettings = {
   storeDateFormat: "YYYY-MM-DD",
   subtasksProperty: "subtasks",
   subtaskEntriesProperty: "subtaskEntries",
+  pixelCalendarProperty: "pixelCalendarPlan",
 };
+
+const SLOT_MINUTES = 30;
+const SUBTASK_SEP = "::";
+
+type PlanMap = Record<string, string[]>;
+
+function makeRef(path: string, subtask?: string | null): string {
+  return subtask != null && subtask !== "" ? path + SUBTASK_SEP + subtask : path;
+}
+
+function parseRef(ref: string): { path: string; subtask: string | null } {
+  const idx = ref.indexOf(SUBTASK_SEP);
+  if (idx === -1) return { path: ref, subtask: null };
+  return { path: ref.slice(0, idx), subtask: ref.slice(idx + SUBTASK_SEP.length) };
+}
+
+function buildSlotKeys(): string[] {
+  const keys: string[] = [];
+  for (let m = 0; m < 24 * 60; m += SLOT_MINUTES) {
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    keys.push(String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0"));
+  }
+  return keys;
+}
 
 function getDailyNoteFormat(app: App): string {
   const anyApp = app as any;
@@ -63,6 +90,11 @@ export default class FolderRoutinesPlugin extends Plugin {
       (source, el) => this.renderStats(source, el)
     );
 
+    this.registerMarkdownCodeBlockProcessor(
+      "pixel-calendar",
+      (source, el, ctx) => this.renderPixelCalendar(el, ctx)
+    );
+
     this.addCommand({
       id: "insert-routines-block",
       name: "Insert routines checklist block",
@@ -76,6 +108,14 @@ export default class FolderRoutinesPlugin extends Plugin {
       name: "Insert routine stats board",
       editorCallback: (editor: Editor, _view: MarkdownView) => {
         editor.replaceSelection("```routine-stats\n```\n");
+      },
+    });
+
+    this.addCommand({
+      id: "insert-pixel-calendar-block",
+      name: "Insert pixel calendar block",
+      editorCallback: (editor: Editor, _view: MarkdownView) => {
+        editor.replaceSelection("```pixel-calendar\n```\n");
       },
     });
 
@@ -557,6 +597,467 @@ export default class FolderRoutinesPlugin extends Plugin {
         this.updateAncestorProgress(itemEl);
       }
     });
+  }
+
+  /* ============================================================
+     Pixel calendar (```pixel-calendar```)
+     ============================================================ */
+
+  private loadPlan(file: TFile): PlanMap {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const raw = fm?.[this.settings.pixelCalendarProperty];
+    const out: PlanMap = {};
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+        out[k] = this.normalizeEntries(v);
+      }
+    }
+    return out;
+  }
+
+  private async savePlan(file: TFile, plan: PlanMap) {
+    const prop = this.settings.pixelCalendarProperty;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const clean: PlanMap = {};
+      for (const [k, v] of Object.entries(plan)) {
+        if (Array.isArray(v) && v.length > 0) clean[k] = [...v];
+      }
+      if (Object.keys(clean).length === 0) {
+        delete fm[prop];
+      } else {
+        fm[prop] = clean;
+      }
+    });
+  }
+
+  private collectHabitFiles(folder: TFolder, out: TFile[]) {
+    const children = [...folder.children].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+    for (const c of children) {
+      if (c instanceof TFile && c.extension === "md") out.push(c);
+      else if (c instanceof TFolder) this.collectHabitFiles(c, out);
+    }
+  }
+
+  private async renderPixelCalendar(
+    el: HTMLElement,
+    ctx: MarkdownPostProcessorContext
+  ) {
+    el.empty();
+
+    const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
+    if (!(root instanceof TFolder)) {
+      el.createDiv({
+        cls: "folder-routines-error",
+        text: `Folder Routines: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`,
+      });
+      return;
+    }
+
+    const date = this.getNoteDate(ctx.sourcePath);
+    if (!date) {
+      el.createDiv({
+        cls: "folder-routines-error",
+        text: "Folder Routines: could not parse a date from this note's filename (expected a daily note).",
+      });
+      return;
+    }
+
+    const noteFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+    if (!(noteFile instanceof TFile)) {
+      el.createDiv({
+        cls: "folder-routines-error",
+        text: "Folder Routines: could not resolve this note to save the plan.",
+      });
+      return;
+    }
+
+    const dateStr = date.format(this.settings.storeDateFormat || "YYYY-MM-DD");
+    const plan = this.loadPlan(noteFile);
+
+    const habitFiles: TFile[] = [];
+    this.collectHabitFiles(root, habitFiles);
+
+    // Assign each habit the same section color the checklist uses so the
+    // calendar chips match. Subfolders are colored by sibling position
+    // (restarting under each parent); a habit inherits its deepest folder's color.
+    const colorByPath = new Map<string, number>();
+    const assignColors = (folder: TFolder, inherited: number) => {
+      const kids = [...folder.children].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+      const files = kids.filter(
+        (c): c is TFile => c instanceof TFile && c.extension === "md"
+      );
+      const subs = kids.filter((c): c is TFolder => c instanceof TFolder);
+      for (const f of files) if (inherited > 0) colorByPath.set(f.path, inherited);
+      subs.forEach((sub, i) =>
+        assignColors(sub, (i % FolderRoutinesPlugin.SECTION_COLORS) + 1)
+      );
+    };
+    assignColors(root, 0);
+    const applyColor = (elm: HTMLElement, path: string) => {
+      const c = colorByPath.get(path);
+      if (c) elm.addClass(`folder-routines-color-${c}`);
+    };
+
+    // Build completion state for this date, reconciling subtasks up front.
+    const done = new Set<string>();
+    const subtasksByPath = new Map<string, string[]>();
+    for (const f of habitFiles) {
+      const subs = this.getSubtasks(f);
+      subtasksByPath.set(f.path, subs);
+      if (subs.length > 0) {
+        const resolved = await this.reconcileSubtaskEntries(f, subs);
+        let allDone = true;
+        for (const s of subs) {
+          if ((resolved[s] ?? []).includes(dateStr)) done.add(makeRef(f.path, s));
+          else allDone = false;
+        }
+        if (allDone) done.add(f.path);
+      } else if (this.isChecked(f, dateStr)) {
+        done.add(f.path);
+      }
+    }
+
+    const slotKeys = buildSlotKeys();
+    const now = moment();
+    const isToday = date.isSame(now, "day");
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const currentSlotKey = (m: ReturnType<typeof moment>): string => {
+      const total =
+        m.hours() * 60 + Math.floor(m.minutes() / SLOT_MINUTES) * SLOT_MINUTES;
+      return pad(Math.floor(total / 60)) + ":" + pad(total % 60);
+    };
+
+    const fileForPath = (p: string): TFile | null => {
+      const f = this.app.vault.getAbstractFileByPath(p);
+      return f instanceof TFile ? f : null;
+    };
+
+    const slotOfRef = (ref: string): string | null => {
+      for (const k of Object.keys(plan)) {
+        if (plan[k].includes(ref)) return k;
+      }
+      return null;
+    };
+
+    const removeRefEverywhere = (ref: string) => {
+      for (const k of Object.keys(plan)) {
+        plan[k] = plan[k].filter((r) => r !== ref);
+        if (plan[k].length === 0) delete plan[k];
+      }
+    };
+
+    const placeRef = (ref: string, slotKey: string) => {
+      removeRefEverywhere(ref);
+      if (!plan[slotKey]) plan[slotKey] = [];
+      if (!plan[slotKey].includes(ref)) plan[slotKey].push(ref);
+    };
+
+    const persist = () => {
+      this.savePlan(noteFile, plan).catch((e) => {
+        console.error("Folder Routines: failed to save pixel calendar plan", e);
+        new Notice("Folder Routines: failed to save calendar plan");
+      });
+    };
+
+    const setRefDone = async (ref: string, target: boolean) => {
+      const { path, subtask } = parseRef(ref);
+      const file = fileForPath(path);
+      if (!file) return;
+      const subs = subtasksByPath.get(path) ?? [];
+      if (subtask != null) {
+        await this.setSubtaskEntry(file, subtask, dateStr, target, subs);
+        if (target) done.add(ref);
+        else done.delete(ref);
+        const allDone =
+          subs.length > 0 && subs.every((s) => done.has(makeRef(path, s)));
+        if (allDone) done.add(path);
+        else done.delete(path);
+      } else if (subs.length > 0) {
+        await this.setParentToggleAll(file, dateStr, target, subs);
+        if (target) {
+          done.add(path);
+          for (const s of subs) done.add(makeRef(path, s));
+        } else {
+          done.delete(path);
+          for (const s of subs) done.delete(makeRef(path, s));
+        }
+      } else {
+        await this.setEntry(file, dateStr, target);
+        if (target) done.add(path);
+        else done.delete(path);
+      }
+    };
+
+    const refLabel = (ref: string): { text: string; parent: string | null } => {
+      const { path, subtask } = parseRef(ref);
+      const file = fileForPath(path);
+      const base = file
+        ? file.basename
+        : (path.split("/").pop() ?? path).replace(/\.md$/, "");
+      if (subtask != null) return { text: subtask, parent: base };
+      return { text: base, parent: null };
+    };
+
+    const makeDraggable = (elm: HTMLElement, ref: string) => {
+      elm.setAttr("draggable", "true");
+      elm.addEventListener("dragstart", (e: DragEvent) => {
+        if (e.dataTransfer) {
+          e.dataTransfer.setData("text/plain", ref);
+          e.dataTransfer.effectAllowed = "move";
+        }
+        elm.addClass("is-dragging");
+      });
+      elm.addEventListener("dragend", () => elm.removeClass("is-dragging"));
+    };
+
+    const wireDropZone = (zone: HTMLElement, onDrop: (ref: string) => void) => {
+      const over = (e: DragEvent) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        zone.addClass("is-drop-target");
+      };
+      zone.addEventListener("dragover", over);
+      zone.addEventListener("dragenter", over);
+      zone.addEventListener("dragleave", () => zone.removeClass("is-drop-target"));
+      zone.addEventListener("drop", (e: DragEvent) => {
+        e.preventDefault();
+        zone.removeClass("is-drop-target");
+        const ref = e.dataTransfer?.getData("text/plain");
+        if (ref) onDrop(ref);
+      });
+    };
+
+    const container = el.createDiv({ cls: "folder-routines pixel-calendar" });
+    const header = container.createDiv({ cls: "pixel-calendar-header" });
+    header.createSpan({ cls: "folder-routines-collapse-icon", text: "▼" });
+    header.createSpan({ cls: "pixel-calendar-title", text: "Day Plan" });
+    header.createSpan({
+      cls: "pixel-calendar-date",
+      text: date.format("dddd, MMMM D, YYYY"),
+    });
+    header.addEventListener("click", () => {
+      container.toggleClass(
+        "is-collapsed",
+        !container.hasClass("is-collapsed")
+      );
+    });
+
+    const layout = container.createDiv({ cls: "pixel-calendar-layout" });
+    const sideEl = layout.createDiv({ cls: "pixel-calendar-side" });
+    const gridWrap = layout.createDiv({ cls: "pixel-calendar-grid-wrap" });
+    const gridEl = gridWrap.createDiv({ cls: "pixel-calendar-grid" });
+
+    let refresh: () => void = () => {};
+    let openSideSection: string | null = null;
+
+    const addChipCheckbox = (chip: HTMLElement, ref: string): HTMLInputElement => {
+      const checkbox = chip.createEl("input", {
+        type: "checkbox",
+      }) as HTMLInputElement;
+      checkbox.checked = done.has(ref);
+      if (checkbox.checked) chip.addClass("is-done");
+      checkbox.addEventListener("click", (e) => e.stopPropagation());
+      checkbox.addEventListener("change", async () => {
+        const target = checkbox.checked;
+        checkbox.disabled = true;
+        try {
+          await setRefDone(ref, target);
+          refresh();
+        } catch (err) {
+          console.error("Folder Routines: failed to update frontmatter", err);
+          new Notice("Folder Routines: failed to update completion");
+          checkbox.checked = !target;
+          checkbox.disabled = false;
+        }
+      });
+      return checkbox;
+    };
+
+    const renderSlotChip = (zone: HTMLElement, ref: string) => {
+      const { subtask } = parseRef(ref);
+      const file = fileForPath(parseRef(ref).path);
+      const chip = zone.createDiv({
+        cls: "pixel-calendar-chip pixel-calendar-slot-chip",
+      });
+      makeDraggable(chip, ref);
+      applyColor(chip, parseRef(ref).path);
+      if (subtask != null) chip.addClass("is-subtask");
+
+      if (!file) {
+        chip.addClass("is-missing");
+        chip.createSpan({
+          cls: "pixel-calendar-chip-text",
+          text: refLabel(ref).text,
+        });
+      } else {
+        addChipCheckbox(chip, ref);
+        const info = chip.createDiv({ cls: "pixel-calendar-chip-info" });
+        const lbl = refLabel(ref);
+        info.createSpan({ cls: "pixel-calendar-chip-text", text: lbl.text });
+        if (lbl.parent)
+          info.createSpan({
+            cls: "pixel-calendar-chip-parent",
+            text: lbl.parent,
+          });
+      }
+
+      const remove = chip.createEl("button", {
+        cls: "pixel-calendar-chip-remove",
+        text: "×",
+      });
+      remove.setAttr("aria-label", "Remove from calendar");
+      remove.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        removeRefEverywhere(ref);
+        refresh();
+        persist();
+      });
+    };
+
+    const renderSideHabit = (file: TFile, containerEl: HTMLElement) => {
+      const subs = subtasksByPath.get(file.path) ?? [];
+      const wrap = containerEl.createDiv({ cls: "pixel-calendar-side-habit" });
+
+      const chip = wrap.createDiv({
+        cls: "pixel-calendar-chip pixel-calendar-side-chip",
+      });
+      makeDraggable(chip, file.path);
+      applyColor(chip, file.path);
+      addChipCheckbox(chip, file.path);
+      chip.createSpan({ cls: "pixel-calendar-chip-text", text: file.basename });
+      const at = slotOfRef(file.path);
+      if (at) {
+        chip.addClass("is-scheduled");
+        chip.createSpan({ cls: "pixel-calendar-chip-time", text: at });
+      }
+
+      if (subs.length > 0) {
+        const subWrap = wrap.createDiv({ cls: "pixel-calendar-side-subtasks" });
+        for (const name of subs) {
+          const sref = makeRef(file.path, name);
+          const sChip = subWrap.createDiv({
+            cls: "pixel-calendar-chip pixel-calendar-side-chip is-subtask",
+          });
+          makeDraggable(sChip, sref);
+          applyColor(sChip, file.path);
+          addChipCheckbox(sChip, sref);
+          sChip.createSpan({ cls: "pixel-calendar-chip-text", text: name });
+          const sAt = slotOfRef(sref);
+          if (sAt) {
+            sChip.addClass("is-scheduled");
+            sChip.createSpan({ cls: "pixel-calendar-chip-time", text: sAt });
+          }
+        }
+      }
+    };
+
+    const renderSideFolder = (
+      folder: TFolder,
+      containerEl: HTMLElement,
+      depth: number
+    ) => {
+      const children = [...folder.children].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+      const files = children.filter(
+        (c): c is TFile => c instanceof TFile && c.extension === "md"
+      );
+      const subfolders = children.filter(
+        (c): c is TFolder => c instanceof TFolder
+      );
+
+      for (const file of files) renderSideHabit(file, containerEl);
+
+      const sections: HTMLElement[] = [];
+      subfolders.forEach((sub, i) => {
+        const colorIndex = i % FolderRoutinesPlugin.SECTION_COLORS;
+        const section = containerEl.createDiv({
+          cls: `pixel-calendar-side-section folder-routines-color-${colorIndex + 1}`,
+        });
+        sections.push(section);
+        if (openSideSection !== sub.path) section.addClass("is-collapsed");
+        const secHeader = section.createDiv({
+          cls: "pixel-calendar-side-heading",
+        });
+        secHeader.createSpan({
+          cls: "folder-routines-collapse-icon",
+          text: "▾",
+        });
+        secHeader.createSpan({ text: sub.name });
+        const body = section.createDiv({ cls: "pixel-calendar-side-body" });
+        renderSideFolder(sub, body, depth + 1);
+        secHeader.addEventListener("click", () => {
+          const willOpen = section.hasClass("is-collapsed");
+          for (const s of sections) s.addClass("is-collapsed");
+          if (willOpen) {
+            section.removeClass("is-collapsed");
+            openSideSection = sub.path;
+          } else {
+            openSideSection = null;
+          }
+        });
+      });
+    };
+
+    const rebuildGrid = () => {
+      for (const key of slotKeys) {
+        const row = gridEl.createDiv({ cls: "pixel-calendar-row" });
+        row.setAttr("data-slot", key);
+        if (key.endsWith(":00")) row.addClass("is-hour");
+        if (isToday && key === currentSlotKey(now)) row.addClass("is-now");
+        row.createDiv({ cls: "pixel-calendar-time", text: key });
+        const zone = row.createDiv({ cls: "pixel-calendar-slot" });
+        wireDropZone(zone, (ref) => {
+          placeRef(ref, key);
+          refresh();
+          persist();
+        });
+        for (const ref of plan[key] ?? []) renderSlotChip(zone, ref);
+      }
+    };
+
+    refresh = () => {
+      const prevScroll = gridWrap.scrollTop;
+
+      sideEl.empty();
+      const sideHeader = sideEl.createDiv({ cls: "pixel-calendar-side-header" });
+      sideHeader.createSpan({
+        cls: "pixel-calendar-side-title",
+        text: "Habits",
+      });
+      const sideList = sideEl.createDiv({ cls: "pixel-calendar-side-list" });
+      if (habitFiles.length === 0) {
+        sideList.createDiv({
+          cls: "pixel-calendar-side-empty",
+          text: `No habits found in "${this.settings.routinesFolder}".`,
+        });
+      } else {
+        renderSideFolder(root, sideList, 0);
+      }
+      wireDropZone(sideList, (ref) => {
+        removeRefEverywhere(ref);
+        refresh();
+        persist();
+      });
+
+      gridEl.empty();
+      rebuildGrid();
+      gridWrap.scrollTop = prevScroll;
+    };
+
+    refresh();
+
+    // Scroll to the current time (today) or a sensible default on first render.
+    const scrollKey = isToday ? currentSlotKey(now) : "08:00";
+    const targetRow = gridEl.querySelector(
+      `[data-slot="${scrollKey}"]`
+    ) as HTMLElement | null;
+    if (targetRow) gridWrap.scrollTop = Math.max(0, targetRow.offsetTop - 8);
   }
 
   /* ============================================================
@@ -1049,6 +1550,22 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.subtaskEntriesProperty =
               value.trim() || "subtaskEntries";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Pixel calendar property")
+      .setDesc(
+        "Frontmatter property on the daily note where the pixel-calendar day plan is stored."
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("pixelCalendarPlan")
+          .setValue(this.plugin.settings.pixelCalendarProperty)
+          .onChange(async (value) => {
+            this.plugin.settings.pixelCalendarProperty =
+              value.trim() || "pixelCalendarPlan";
             await this.plugin.saveSettings();
           })
       );

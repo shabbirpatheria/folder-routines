@@ -1,6 +1,6 @@
 # Pixel Habits
 
-An [Obsidian](https://obsidian.md) plugin that turns a folder of routine notes into an interactive, retro **16-bit RPG-style** habit checklist and stats screen. Checking an item off logs the daily note's date into that routine note — and a companion stats board visualizes your consistency like a JRPG character screen.
+An [Obsidian](https://obsidian.md) plugin that turns a folder of routine notes into an interactive, retro **16-bit RPG-style** habit checklist, day planner, and stats screen. Checking an item off logs the daily note's date into that routine note — a drag-and-drop pixel calendar lets you schedule habits into the day, and a companion stats board visualizes your consistency like a JRPG character screen.
 
 ## How it works
 
@@ -72,6 +72,34 @@ entries:
 
 Notes without a `subtasks` property behave exactly as before — a single checkbox.
 
+## Pixel calendar
+
+Plan your day by adding a `pixel-calendar` code block to your daily note (or use the **Insert pixel calendar block** command):
+
+````markdown
+```pixel-calendar
+```
+````
+
+This renders a single-day planner titled **Day Plan** for the daily note's date, with 48 half-hour slots covering 24 hours. Every habit — and its subtasks — appears in a side tray:
+
+- **Drag** a habit or subtask from the tray into any time slot to schedule it. The plan is saved to the daily note's `pixelCalendarPlan` frontmatter property, so it persists across reloads.
+- **Check** any item — right inside its slot **or straight from the side tray** — this writes to `entries` / `subtaskEntries` exactly like the checklist (subtask/parent stay in sync), and both the tray and slot reflect the completion.
+- **Remove** a scheduled item with the `×` button on its slot chip.
+- **Collapse** the whole planner by clicking the **Day Plan** header, just like the checklist's top-level **Habits** toggle.
+- The side tray's folder sections are an **accordion** — opening one section collapses the others, so at most one is expanded at a time.
+- The row for the current half-hour is highlighted so you can see where you are in the day.
+
+```yaml
+---
+pixelCalendarPlan:
+  "07:00":
+    - Routines/Fitness/Gym.md
+  "07:30":
+    - "Routines/Fitness/Gym.md::Cool down"
+---
+```
+
 ## Stats board
 
 Add a stats screen to **any** note with the `routine-stats` code block (or use the **Insert routine stats board** command):
@@ -104,6 +132,7 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 - Live per-section progress bars and completion counts
 - Checking an item writes the daily note's date into that note's `entries` property; unchecking removes it
 - Optional nested subtasks with pixel tree connectors: completing all subtasks completes the parent, and toggling the parent toggles all subtasks
+- `pixel-calendar` day planner: drag habits and subtasks into 30-minute slots, check them off from the slot or the side tray, with a collapsible **Day Plan** header and an accordion tray; the plan is saved in the daily note's `pixelCalendarPlan` property
 - `routine-stats` board: per-folder heatmap, streaks, levels, ranks, XP, weekly milestones, trend, and achievements
 - Clickable heatmap cells to log/remove completions directly from the stats board
 - The daily note's date is parsed from its filename using your Daily Notes / Periodic Notes format
@@ -115,6 +144,7 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 - **Stored date format** — Moment format used for the date written into `entries` (default: `YYYY-MM-DD`)
 - **Subtasks property** — frontmatter property that lists a note's subtasks (default: `subtasks`)
 - **Subtask entries property** — frontmatter property where per-subtask completion dates are stored (default: `subtaskEntries`)
+- **Pixel calendar property** — frontmatter property in the daily note where the pixel calendar plan is stored (default: `pixelCalendarPlan`)
 
 ## Installation
 
