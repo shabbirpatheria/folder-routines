@@ -825,11 +825,12 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       makeDraggable(chip, file.path);
       applyColor(chip, file.path);
       addChipCheckbox(chip, file.path);
-      chip.createSpan({ cls: "pixel-calendar-chip-text", text: file.basename });
+      const info = chip.createDiv({ cls: "pixel-calendar-chip-info" });
+      info.createSpan({ cls: "pixel-calendar-chip-text", text: file.basename });
       const at = slotOfRef(file.path);
       if (at) {
         chip.addClass("is-scheduled");
-        chip.createSpan({ cls: "pixel-calendar-chip-time", text: at });
+        info.createSpan({ cls: "pixel-calendar-chip-time", text: at });
       }
       if (subs.length > 0) {
         const subWrap = wrap.createDiv({ cls: "pixel-calendar-side-subtasks" });
@@ -841,11 +842,12 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           makeDraggable(sChip, sref);
           applyColor(sChip, file.path);
           addChipCheckbox(sChip, sref);
-          sChip.createSpan({ cls: "pixel-calendar-chip-text", text: name });
+          const sInfo = sChip.createDiv({ cls: "pixel-calendar-chip-info" });
+          sInfo.createSpan({ cls: "pixel-calendar-chip-text", text: name });
           const sAt = slotOfRef(sref);
           if (sAt) {
             sChip.addClass("is-scheduled");
-            sChip.createSpan({ cls: "pixel-calendar-chip-time", text: sAt });
+            sInfo.createSpan({ cls: "pixel-calendar-chip-time", text: sAt });
           }
         }
       }

@@ -30,6 +30,16 @@
 
   /* almost-imperceptible fractal grain, layered over solid panels */
   --fr-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
+  /* CRT scanlines — reusable dark-theme dither for panels + rows */
+  --fr-scanline: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.022) 0,
+    rgba(255, 255, 255, 0.022) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  /* combined CRT wash: grain + scanlines, for opaque surfaces */
+  --fr-crt: var(--fr-noise), var(--fr-scanline);
 
   --fr-accent: var(--fr-purple);
   --fr-accent-hi: var(--fr-purple-hi);
@@ -80,6 +90,14 @@
   --fr-bevel: inset 2px 2px 0 0 rgba(255, 255, 255, 0.6),
     inset -2px -2px 0 0 rgba(0, 0, 0, 0.18);
   --fr-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E");
+  --fr-scanline: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.03) 0,
+    rgba(0, 0, 0, 0.03) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  --fr-crt: var(--fr-noise), var(--fr-scanline);
   background-image: var(--fr-noise),
     repeating-linear-gradient(
       0deg,
@@ -334,26 +352,22 @@
   padding: 4px 4px 4px 1.15rem;
   overflow: hidden;
   opacity: 1;
-  background: var(--fr-list-bg);
+  background-color: var(--fr-list-bg);
+  background-image: var(--fr-crt);
+  background-size: 140px 140px, auto;
   border: 2px solid var(--fr-line-dark);
   box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.5);
   transition: max-height 140ms steps(3), opacity 90ms steps(2);
 }
-/* pixel spine (Step 4 vibe at section level) */
+/* neutral section line (matches calendar habit tray) */
 .folder-routines-body::before {
   content: "";
   position: absolute;
   left: 4px;
   top: 4px;
   bottom: 4px;
-  width: 4px;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--fr-accent) 0,
-    var(--fr-accent) 4px,
-    transparent 4px,
-    transparent 8px
-  );
+  width: 2px;
+  background: var(--fr-line-hi);
 }
 .folder-routines-section.is-collapsed > .folder-routines-body {
   max-height: 0;
@@ -386,7 +400,9 @@
   margin: 0;
   outline: none;
   color: var(--fr-ink-light);
-  background: var(--fr-panel);
+  background-color: var(--fr-panel);
+  background-image: var(--fr-crt);
+  background-size: 140px 140px, auto;
   border: 2px solid var(--fr-line-dark);
   border-top-width: 0;
   box-shadow: inset 1px 1px 0 0 rgba(255, 255, 255, 0.06),
@@ -397,7 +413,7 @@
   border-top-width: 2px;
 }
 .folder-routines-item:nth-child(even) {
-  background: var(--fr-panel-alt);
+  background-color: var(--fr-panel-alt);
 }
 
 /* pixel selector cursor ► (Step 3) */
@@ -414,7 +430,7 @@
 }
 .folder-routines-item:hover {
   transform: translate(-1px, -1px);
-  background: var(--fr-hover);
+  background-color: var(--fr-hover);
 }
 .folder-routines-item:hover::before {
   opacity: 0.5;
@@ -422,7 +438,7 @@
 
 /* selected / active row — purple is the universal selection/focus cue */
 .folder-routines-item.is-selected {
-  background: var(--fr-select);
+  background-color: var(--fr-select);
   box-shadow: inset 0 0 0 2px var(--fr-purple),
     inset 1px 1px 0 0 rgba(255, 255, 255, 0.08);
   transform: translateX(2px);
@@ -496,11 +512,11 @@
 }
 .folder-routines-checkbox:checked,
 .folder-routines-label input[type="checkbox"]:checked {
-  background: linear-gradient(180deg, var(--fr-green-hi), var(--fr-green));
+  background: linear-gradient(180deg, var(--fr-accent-hi), var(--fr-accent));
   border-color: var(--fr-line-dark);
   box-shadow: inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
     inset 2px 2px 0 0 rgba(255, 255, 255, 0.4),
-    0 0 0 2px color-mix(in srgb, var(--fr-green) 40%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--fr-accent) 40%, transparent);
   animation: fr-check-pop 130ms steps(3);
 }
 .folder-routines-checkbox::after,
@@ -546,7 +562,7 @@
    ============================================================ */
 .folder-routines-item.is-checked,
 .folder-routines-item.is-checked:nth-child(even) {
-  background: var(--fr-panel-inset);
+  background-color: var(--fr-panel-inset);
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fr-green) 24%, transparent),
     inset 1px 1px 0 0 rgba(255, 255, 255, 0.03),
     inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
@@ -554,7 +570,7 @@
 .folder-routines-item.is-checked .folder-routines-text {
   color: var(--fr-ink-light);
   opacity: 0.65;
-  text-decoration: none;
+  text-decoration: line-through;
 }
 .folder-routines-item.is-checked .folder-routines-index {
   color: var(--fr-green);
@@ -649,7 +665,7 @@
 .folder-routines-subtask.is-checked .folder-routines-text {
   color: var(--fr-ink-dim);
   opacity: 0.65;
-  text-decoration: none;
+  text-decoration: line-through;
 }
 
 /* ============================================================
@@ -1592,9 +1608,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pixel-calendar-side-chip .pixel-calendar-chip-text {
+.pixel-calendar-side-chip .pixel-calendar-chip-info {
   flex: 1 1 auto;
   min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
 }
 .pixel-calendar-chip-parent {
   color: var(--fr-ink-muted);
@@ -1604,8 +1621,8 @@
   text-transform: uppercase;
 }
 .pixel-calendar-chip-time {
-  flex: 0 0 auto;
-  margin-left: auto;
+  justify-self: start;
+  margin-top: 0.2rem;
   padding: 0.02rem 0.25rem;
   color: var(--fr-window-inset);
   background: var(--fr-accent);
