@@ -385,7 +385,7 @@ export default class FolderRoutinesPlugin extends Plugin {
   }
 
   private static readonly PROGRESS_BLOCKS = 10;
-  private static readonly SECTION_COLORS = 5;
+  private static readonly SECTION_COLORS = 4;
 
   private createProgress(header: HTMLElement) {
     const progress = header.createDiv({ cls: "folder-routines-progress" });

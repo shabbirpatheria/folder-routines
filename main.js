@@ -1304,7 +1304,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
   }
 };
 FolderRoutinesPlugin.PROGRESS_BLOCKS = 10;
-FolderRoutinesPlugin.SECTION_COLORS = 5;
+FolderRoutinesPlugin.SECTION_COLORS = 4;
 var FolderRoutinesSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);

@@ -4,15 +4,18 @@
    ============================================================ */
 
 .folder-routines {
-  /* ---- retro palette (limited, brightness-balanced) ---- */
-  --fr-bg: #131317;
-  --fr-list-bg: #101014;
-  --fr-panel: #20202a;
-  --fr-panel-alt: #1a1a22;
-  --fr-panel-inset: #121218;
-  --fr-window: #33333f;
-  --fr-window-hi: #3c3c4a;
-  --fr-window-inset: #191921;
+  /* ---- retro palette — layered elevation ladder ----
+     L0 app bg → L1 primary panel → L2 nested panel → L3 selection → L4 hover */
+  --fr-bg: #111118;          /* L0  app background            */
+  --fr-list-bg: #0d0d13;     /* recessed track (below L0)     */
+  --fr-panel-inset: #14141b; /* inset inside a panel          */
+  --fr-panel-alt: #16161f;   /* alt row / L1-               */
+  --fr-panel: #1b1b26;       /* L1  primary panel             */
+  --fr-window-inset: #1a1a24;/* recessed control well         */
+  --fr-window: #262633;      /* L2  nested panel / chips      */
+  --fr-window-hi: #2f2f3f;   /* L2+ raised nested surface     */
+  --fr-select: #353547;      /* L3  selected surface          */
+  --fr-hover: #40405a;       /* L4  hover surface             */
   --fr-ink-light: #f4f1e6;
   --fr-ink-dim: #bcb9ac;
   --fr-ink-muted: #7d7a70;
@@ -24,6 +27,9 @@
   --fr-amber-hi: #e6c877;
   --fr-green: #47c95a;
   --fr-green-hi: #7fe38d;
+
+  /* almost-imperceptible fractal grain, layered over solid panels */
+  --fr-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
 
   --fr-accent: var(--fr-purple);
   --fr-accent-hi: var(--fr-purple-hi);
@@ -41,14 +47,16 @@
   padding: 0.75rem;
   color: var(--fr-ink-light);
   background-color: var(--fr-bg);
-  /* subtle scanline/dither — reduced ~50% */
-  background-image: repeating-linear-gradient(
-    0deg,
-    rgba(255, 255, 255, 0.008) 0,
-    rgba(255, 255, 255, 0.008) 1px,
-    transparent 1px,
-    transparent 5px
-  );
+  /* fractal grain + subtle scanline/dither */
+  background-image: var(--fr-noise),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.008) 0,
+      rgba(255, 255, 255, 0.008) 1px,
+      transparent 1px,
+      transparent 5px
+    );
+  background-size: 140px 140px, auto;
   image-rendering: pixelated;
   -webkit-font-smoothing: none;
 }
@@ -62,6 +70,8 @@
   --fr-window: #fff8e6;
   --fr-window-hi: #fffdf3;
   --fr-window-inset: #efe6cc;
+  --fr-select: #ece0bf;
+  --fr-hover: #fffdf3;
   --fr-ink-light: #2a2620;
   --fr-ink-dim: #4a463c;
   --fr-ink-muted: #8a8574;
@@ -69,20 +79,24 @@
   --fr-line-hi: #d8cda8;
   --fr-bevel: inset 2px 2px 0 0 rgba(255, 255, 255, 0.6),
     inset -2px -2px 0 0 rgba(0, 0, 0, 0.18);
-  background-image: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.012) 0,
-    rgba(0, 0, 0, 0.012) 1px,
-    transparent 1px,
-    transparent 5px
-  );
+  --fr-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E");
+  background-image: var(--fr-noise),
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.012) 0,
+      rgba(0, 0, 0, 0.012) 1px,
+      transparent 1px,
+      transparent 5px
+    );
 }
 
-/* ---- Section colors by order: Blue, Amber, Green, Red, Purple.
-   Assigned per sibling position and restart under each parent. ---- */
+/* ---- Section colors by order: Blue (routine), Amber (streaks),
+   Green (work), Red (fitness). Assigned per sibling position and restart
+   under each parent. Purple is reserved for selection / focus, never a
+   section color. ---- */
 .folder-routines-section {
-  --fr-accent: var(--fr-purple);
-  --fr-accent-hi: var(--fr-purple-hi);
+  --fr-accent: #5a95e0;
+  --fr-accent-hi: #8fc0f5;
 }
 .folder-routines-color-1 {
   --fr-accent: #5a95e0;
@@ -99,10 +113,6 @@
 .folder-routines-color-4 {
   --fr-accent: #e0574f;
   --fr-accent-hi: #f58a83;
-}
-.folder-routines-color-5 {
-  --fr-accent: #7c5cff;
-  --fr-accent-hi: #a88bff;
 }
 
 /* ============================================================
@@ -404,20 +414,21 @@
 }
 .folder-routines-item:hover {
   transform: translate(-1px, -1px);
-  background: var(--fr-window);
+  background: var(--fr-hover);
 }
 .folder-routines-item:hover::before {
   opacity: 0.5;
 }
 
-/* selected / active row (Step 3) */
+/* selected / active row — purple is the universal selection/focus cue */
 .folder-routines-item.is-selected {
-  background: var(--fr-window-hi);
-  box-shadow: inset 0 0 0 2px var(--fr-accent),
+  background: var(--fr-select);
+  box-shadow: inset 0 0 0 2px var(--fr-purple),
     inset 1px 1px 0 0 rgba(255, 255, 255, 0.08);
   transform: translateX(2px);
 }
 .folder-routines-item.is-selected::before {
+  color: var(--fr-purple-hi);
   opacity: 1;
   animation: fr-cursor 900ms steps(2) infinite;
 }
@@ -476,7 +487,7 @@
 }
 .folder-routines-checkbox:focus-visible,
 .folder-routines-label input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--fr-accent);
+  outline: 2px solid var(--fr-purple);
   outline-offset: 2px;
 }
 .folder-routines-checkbox:active,
@@ -485,11 +496,11 @@
 }
 .folder-routines-checkbox:checked,
 .folder-routines-label input[type="checkbox"]:checked {
-  background: linear-gradient(180deg, var(--fr-accent-hi), var(--fr-accent));
+  background: linear-gradient(180deg, var(--fr-green-hi), var(--fr-green));
   border-color: var(--fr-line-dark);
   box-shadow: inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
     inset 2px 2px 0 0 rgba(255, 255, 255, 0.4),
-    0 0 0 2px color-mix(in srgb, var(--fr-accent) 40%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--fr-green) 40%, transparent);
   animation: fr-check-pop 130ms steps(3);
 }
 .folder-routines-checkbox::after,
@@ -533,17 +544,17 @@
 /* ============================================================
    Completed rows — DONE stamp + XP popup (Step 7)
    ============================================================ */
-.folder-routines-item.is-checked {
-  background: var(--fr-panel-inset);
-}
+.folder-routines-item.is-checked,
 .folder-routines-item.is-checked:nth-child(even) {
   background: var(--fr-panel-inset);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fr-green) 24%, transparent),
+    inset 1px 1px 0 0 rgba(255, 255, 255, 0.03),
+    inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
 }
 .folder-routines-item.is-checked .folder-routines-text {
-  color: var(--fr-ink-muted);
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
-  text-decoration-color: color-mix(in srgb, var(--fr-ink-muted) 80%, transparent);
+  color: var(--fr-ink-light);
+  opacity: 0.65;
+  text-decoration: none;
 }
 .folder-routines-item.is-checked .folder-routines-index {
   color: var(--fr-green);
@@ -599,11 +610,11 @@
 }
 .folder-routines-subtask:hover,
 .folder-routines-subtask:focus-within {
-  background: color-mix(in srgb, var(--fr-window) 55%, transparent);
+  background: color-mix(in srgb, var(--fr-hover) 55%, transparent);
 }
 .folder-routines-subtask.is-selected {
-  background: var(--fr-window-hi);
-  box-shadow: inset 0 0 0 2px var(--fr-accent);
+  background: var(--fr-select);
+  box-shadow: inset 0 0 0 2px var(--fr-purple);
 }
 .folder-routines-subtask .folder-routines-label {
   min-height: 34px;
@@ -636,10 +647,9 @@
   height: 1.1rem;
 }
 .folder-routines-subtask.is-checked .folder-routines-text {
-  color: var(--fr-ink-muted);
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
-  text-decoration-color: color-mix(in srgb, var(--fr-ink-muted) 80%, transparent);
+  color: var(--fr-ink-dim);
+  opacity: 0.65;
+  text-decoration: none;
 }
 
 /* ============================================================
@@ -703,6 +713,16 @@
   0%, 100% { filter: brightness(1); }
   25%, 75% { filter: brightness(1.55) saturate(1.3); }
   50% { filter: brightness(1); }
+}
+@keyframes fr-slot-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 2px var(--fr-purple);
+    background-color: color-mix(in srgb, var(--fr-purple) 16%, transparent);
+  }
+  50% {
+    box-shadow: inset 0 0 0 2px var(--fr-purple-hi);
+    background-color: color-mix(in srgb, var(--fr-purple) 30%, transparent);
+  }
 }
 .folder-routines-section.is-just-completed > .folder-routines-heading {
   animation: fr-section-flash 500ms steps(1) 1;
@@ -1355,7 +1375,9 @@
   display: grid;
   gap: 0.5rem;
   padding: 0.5rem;
-  background: var(--fr-panel);
+  background-color: var(--fr-panel);
+  background-image: var(--fr-noise);
+  background-size: 140px 140px;
   border: 3px solid var(--fr-line-dark);
   border-radius: 0;
   box-shadow:
@@ -1383,13 +1405,16 @@
   gap: 0.3rem;
   min-height: 3rem;
   padding: 0.35rem;
-  background: var(--fr-list-bg);
+  background-color: var(--fr-list-bg);
+  background-image: var(--fr-noise);
+  background-size: 140px 140px;
   border: 2px solid var(--fr-line-dark);
   box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.45);
 }
 .pixel-calendar-side-list.is-drop-target {
-  outline: 3px solid var(--fr-accent);
+  outline: 2px solid var(--fr-purple);
   outline-offset: -1px;
+  animation: fr-slot-pulse 640ms steps(2) infinite;
 }
 .pixel-calendar-side-empty {
   color: var(--fr-ink-muted);
@@ -1448,7 +1473,9 @@
 .pixel-calendar-grid-wrap {
   max-height: 32rem;
   overflow-y: auto;
-  background: var(--fr-list-bg);
+  background-color: var(--fr-list-bg);
+  background-image: var(--fr-noise);
+  background-size: 140px 140px;
   border: 3px solid var(--fr-line-dark);
   border-radius: 0;
   box-shadow:
@@ -1500,10 +1527,16 @@
   gap: 0.3rem;
   min-height: 2.1rem;
   padding: 0.2rem 0.3rem;
+  transition: box-shadow 90ms steps(2), background-color 90ms steps(2);
+}
+.pixel-calendar-slot:hover {
+  background-color: color-mix(in srgb, var(--fr-hover) 30%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fr-purple) 45%, transparent);
 }
 .pixel-calendar-slot.is-drop-target {
-  background: color-mix(in srgb, var(--fr-accent) 28%, transparent);
-  box-shadow: inset 0 0 0 3px var(--fr-accent);
+  background-color: color-mix(in srgb, var(--fr-purple) 20%, transparent);
+  box-shadow: inset 0 0 0 2px var(--fr-purple);
+  animation: fr-slot-pulse 640ms steps(2) infinite;
 }
 
 /* ---- chips: shared base for tray + slot ---- */
@@ -1540,11 +1573,14 @@
   box-shadow: inset 0 0 0 2px #e0574f, 2px 2px 0 0 var(--fr-line-dark);
   cursor: grab;
 }
+.pixel-calendar-chip.is-done {
+  border-left-color: var(--fr-green);
+  background: linear-gradient(180deg, var(--fr-window) 0, var(--fr-window-inset) 100%);
+}
 .pixel-calendar-chip.is-done .pixel-calendar-chip-text {
-  color: var(--fr-ink-muted);
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
-  text-decoration-color: color-mix(in srgb, var(--fr-ink-muted) 80%, transparent);
+  color: var(--fr-ink-light);
+  opacity: 0.65;
+  text-decoration: none;
 }
 .pixel-calendar-chip-info {
   display: grid;
@@ -1634,13 +1670,14 @@
   transform: scale(0.82);
 }
 .pixel-calendar-chip input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--fr-accent);
+  outline: 2px solid var(--fr-purple);
   outline-offset: 2px;
 }
 .pixel-calendar-chip input[type="checkbox"]:checked {
-  background: linear-gradient(180deg, var(--fr-accent-hi), var(--fr-accent));
+  background: linear-gradient(180deg, var(--fr-green-hi), var(--fr-green));
   box-shadow: inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
-    inset 2px 2px 0 0 rgba(255, 255, 255, 0.4);
+    inset 2px 2px 0 0 rgba(255, 255, 255, 0.4),
+    0 0 0 2px color-mix(in srgb, var(--fr-green) 40%, transparent);
   animation: fr-check-pop 130ms steps(3);
 }
 .pixel-calendar-chip input[type="checkbox"]::after {
