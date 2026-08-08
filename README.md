@@ -2,6 +2,8 @@
 
 An [Obsidian](https://obsidian.md) plugin that turns a folder of routine notes into an interactive, retro **16-bit RPG-style** habit checklist, day planner, and stats screen. Checking an item off logs the daily note's date into that routine note — a drag-and-drop pixel calendar lets you schedule habits into the day, and a companion stats board visualizes your consistency like a JRPG character screen.
 
+![The Pixel Habits checklist: collapsible, colour-coded sections of habits with pixel checkboxes](assets/checklist.png)
+
 ## How it works
 
 Point the plugin at a root folder (default: `Routines`). Each subfolder becomes a collapsible section, and each note inside becomes a checklist item:
@@ -83,6 +85,8 @@ Plan your day by adding a `pixel-calendar` code block to your daily note (or use
 
 This renders a single-day planner titled **Day Plan** for the daily note's date, with 48 half-hour slots covering 24 hours. Every habit — and its subtasks — appears in a side tray:
 
+![The pixel calendar: habits dragged from the side tray into half-hour time slots across the day](assets/calendar.png)
+
 - **Drag** a habit or subtask from the tray into any time slot to schedule it. The plan is saved to the daily note's `pixelCalendarPlan` frontmatter property, so it persists across reloads.
 - **Double-click an empty time slot** to add a **one-off task** for that day — something that isn't one of your routines (see below).
 - **Stretch** anything you've scheduled: drag the bottom edge of a block to make it span more time.
@@ -158,6 +162,8 @@ Add a stats screen to **any** note with the `routine-stats` code block (or use t
 ````
 
 This renders a retro RPG **character-stats screen** with one board per folder/section, showing the last **21 days**:
+
+![The stats board: an RPG character screen with level, streaks, a completion bar, heatmap, and achievement badges](assets/stats.png)
 
 - **Header** — category banner, section title, level (`LV.n`), current streak, and a rank badge (S/A/B/C/D/E).
 - **Quick stats** — best streak, current streak, completion %, and earned XP.
