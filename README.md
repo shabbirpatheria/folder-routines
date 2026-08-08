@@ -127,7 +127,7 @@ This renders a single-day planner titled **Day Plan** for the daily note's date,
 
 - **Drag** a habit or subtask from the tray into any time slot to schedule it. The plan is saved to the daily note's `pixelCalendarPlan` frontmatter property, so it persists across reloads.
 - **Double-click an empty time slot** to add a **one-off task** for that day — something that isn't one of your routines (see below).
-- **Stretch** anything you've scheduled: drag the bottom edge of a block to make it span more time.
+- **Stretch** anything you've scheduled: drag the bottom edge of a block to make it span more time (30 minutes at a time).
 - **Check** any item — right inside its slot **or straight from the side tray** — this writes to `entries` / `subtaskEntries` exactly like the checklist (subtask/parent stay in sync), and both the tray and slot reflect the completion.
 - **Remove** a scheduled item with the `×` button on its slot chip.
 - **Collapse** the whole planner by clicking the **Day Plan** header, just like the checklist's top-level **Habits** toggle.
@@ -149,8 +149,9 @@ pixelCalendarPlan:
 
 Every scheduled block starts as one 30-minute slot, but a habit rarely fits neatly into half an hour:
 
-- **Drag the bottom edge** of a block to stretch it over as many rows as you need (snaps to 15 minutes).
-- Moving a block to another slot **keeps its duration**, and overlapping blocks are shown side by side.
+- **Drag the bottom edge** of a block to stretch it over as many rows as you need. Durations snap to whole 30-minute slots, and a block can never be made shorter than one slot.
+- Moving a block to another slot **keeps its duration**.
+- Two blocks sharing the same time sit **side by side**. A third one wraps onto a new line and the time slot **grows taller** to fit it — long blocks keep running unbroken down the side.
 - The side tray shows each scheduled habit's full time range.
 
 Anything other than a plain 30-minute slot is saved to the daily note's `pixelCalendarTimes` property:

@@ -36,7 +36,12 @@ const DEFAULT_SETTINGS: FolderRoutinesSettings = {
 };
 
 const SLOT_MINUTES = 30;
-const MIN_DURATION = 15;
+/* a habit occupies at least one whole slot, and grows a slot at a time */
+const MIN_DURATION = 30;
+const RESIZE_STEP = 30;
+/* at most two events sit side by side; the next one wraps to a new band */
+const MAX_COLUMNS = 2;
+const MAX_BANDS = 8;
 const DAY_MINUTES = 24 * 60;
 const SUBTASK_SEP = "::";
 
@@ -1292,15 +1297,16 @@ export default class FolderRoutinesPlugin extends Plugin {
     /* ---- stretching & exact times ---- */
 
     const rowHeightPx = (): number => {
-      const row = gridEl.querySelector(
-        ".pixel-calendar-row"
+      // rows stretch to fit stacked events, so measure the unscaled ruler
+      const unit = gridEl.querySelector(
+        ".pixel-calendar-unit"
       ) as HTMLElement | null;
-      const h = row?.getBoundingClientRect().height ?? 0;
+      const h = unit?.getBoundingClientRect().height ?? 0;
       return h > 0 ? h : 0;
     };
 
     const snap = (mins: number) =>
-      Math.round(mins / MIN_DURATION) * MIN_DURATION;
+      Math.round(mins / RESIZE_STEP) * RESIZE_STEP;
 
     /* Bottom drag handle: stretch the event over more time. */
     const decorateEvent = (
@@ -1568,62 +1574,111 @@ export default class FolderRoutinesPlugin extends Plugin {
     };
 
     /* Scheduled events float above the slot rows so one can span many rows.
-       Overlapping events are packed into side-by-side lanes. */
-    const layoutEvents = (layer: HTMLElement) => {
+       At most two events sit side by side; a third wraps onto a new band
+       below them, and the rows it covers grow to make room. */
+    const layoutEvents = (layer: HTMLElement, rowEls: HTMLElement[]) => {
       const items: { ref: string; span: TimeSpan }[] = [];
       for (const key of Object.keys(plan)) {
         for (const ref of plan[key]) items.push({ ref, span: spanOf(ref, key) });
       }
+      // longer events first so they claim a column for their whole run
       items.sort(
-        (a, b) => a.span.start - b.span.start || a.span.end - b.span.end
+        (a, b) =>
+          a.span.start - b.span.start ||
+          b.span.end - b.span.start - (a.span.end - a.span.start)
       );
 
-      // group items that overlap in time, then assign a lane inside the group
-      const laneOf = new Map<string, number>();
-      const lanesIn = new Map<string, number>();
-      let group: typeof items = [];
-      let groupEnd = -1;
-      const flush = () => {
-        if (group.length === 0) return;
-        const laneEnds: number[] = [];
-        for (const it of group) {
-          let lane = laneEnds.findIndex((end) => end <= it.span.start);
-          if (lane === -1) {
-            lane = laneEnds.length;
-            laneEnds.push(it.span.end);
-          } else {
-            laneEnds[lane] = it.span.end;
-          }
-          laneOf.set(it.ref, lane);
-        }
-        for (const it of group) lanesIn.set(it.ref, laneEnds.length);
-        group = [];
-        groupEnd = -1;
+      const firstRow = (min: number) => Math.floor(min / SLOT_MINUTES);
+      const lastRow = (min: number) => Math.floor((min - 1) / SLOT_MINUTES);
+
+      /* Cells an event covers, as row*MAX_BANDS+band keys. An event that
+         continues past a row fills that row to the bottom, and fills the
+         final row from the top down to its own band. */
+      const cellsOf = (r1: number, r2: number, band: number): number[] => {
+        const out: number[] = [];
+        if (r1 === r2) return [r1 * MAX_BANDS + band];
+        for (let b = band; b < MAX_BANDS; b++) out.push(r1 * MAX_BANDS + b);
+        for (let r = r1 + 1; r < r2; r++)
+          for (let b = 0; b < MAX_BANDS; b++) out.push(r * MAX_BANDS + b);
+        for (let b = 0; b <= band; b++) out.push(r2 * MAX_BANDS + b);
+        return out;
       };
-      for (const it of items) {
-        if (group.length > 0 && it.span.start >= groupEnd) flush();
-        group.push(it);
-        groupEnd = Math.max(groupEnd, it.span.end);
-      }
-      flush();
+
+      const taken: Set<number>[] = [];
+      for (let c = 0; c < MAX_COLUMNS; c++) taken.push(new Set<number>());
+      const placed: {
+        ref: string;
+        span: TimeSpan;
+        r1: number;
+        r2: number;
+        band: number;
+        col: number;
+        cells: number[];
+      }[] = [];
 
       for (const it of items) {
-        const chip = renderSlotChip(layer, it.ref, it.span);
-        const lanes = lanesIn.get(it.ref) ?? 1;
-        const lane = laneOf.get(it.ref) ?? 0;
-        const units = (n: number) => n / SLOT_MINUTES;
-        chip.setAttr("data-start", formatHM(it.span.start));
-        chip.setAttr("data-end", formatHM(it.span.end));
-        chip.style.top = `calc(var(--fr-slot-h) * ${units(it.span.start)})`;
-        chip.style.height = `calc(var(--fr-slot-h) * ${units(
-          it.span.end - it.span.start
-        )} - 3px)`;
-        chip.style.left = `${(lane / lanes) * 100}%`;
-        chip.style.width = `${100 / lanes}%`;
+        const r1 = firstRow(it.span.start);
+        const r2 = Math.max(r1, lastRow(it.span.end));
+        let band = MAX_BANDS - 1;
+        let col = 0;
+        let cells = cellsOf(r1, r2, band);
+        let found = false;
+        for (let b = 0; b < MAX_BANDS && !found; b++) {
+          const candidate = cellsOf(r1, r2, b);
+          for (let c = 0; c < MAX_COLUMNS && !found; c++) {
+            if (candidate.some((k) => taken[c].has(k))) continue;
+            band = b;
+            col = c;
+            cells = candidate;
+            found = true;
+          }
+        }
+        for (const k of cells) taken[col].add(k);
+        placed.push({ ...it, r1, r2, band, col, cells });
+      }
+
+      // rows grow to fit the deepest band any of their events reaches
+      const units: number[] = rowEls.map(() => 1);
+      for (const p of placed) {
+        for (let r = p.r1; r <= p.r2; r++)
+          if (r < units.length) units[r] = Math.max(units[r], p.band + 1);
+      }
+      const rowTop: number[] = [];
+      let acc = 0;
+      for (let r = 0; r < units.length; r++) {
+        rowTop[r] = acc;
+        acc += units[r];
+        rowEls[r].style.setProperty("--fr-row-units", String(units[r]));
+      }
+
+      for (const p of placed) {
+        const chip = renderSlotChip(layer, p.ref, p.span);
+        // an event only shares its width when something sits beside it
+        const beside = placed.some(
+          (o) =>
+            o !== p &&
+            o.col !== p.col &&
+            o.cells.some((k) => p.cells.includes(k))
+        );
+        const top =
+          rowTop[p.r1] +
+          p.band +
+          (p.span.start - p.r1 * SLOT_MINUTES) / SLOT_MINUTES;
+        const bottom =
+          rowTop[p.r2] +
+          p.band +
+          (p.span.end - p.r2 * SLOT_MINUTES) / SLOT_MINUTES;
+        chip.setAttr("data-start", formatHM(p.span.start));
+        chip.setAttr("data-end", formatHM(p.span.end));
+        chip.setAttr("data-band", String(p.band));
+        chip.style.top = `calc(var(--fr-slot-h) * ${top})`;
+        chip.style.height = `calc(var(--fr-slot-h) * ${bottom - top} - 3px)`;
+        chip.style.left = beside ? `${p.col * 50}%` : "0%";
+        chip.style.width = beside ? "50%" : "100%";
         // let a drop land on the slot underneath a long event
         wireDropZone(chip, (ref) => {
-          if (ref === it.ref) return;
-          placeRef(ref, slotKeyForMinutes(it.span.start));
+          if (ref === p.ref) return;
+          placeRef(ref, slotKeyForMinutes(p.span.start));
           delete spans[ref];
           refresh();
           persist();
@@ -1632,8 +1687,10 @@ export default class FolderRoutinesPlugin extends Plugin {
     };
 
     const rebuildGrid = () => {
+      const rowEls: HTMLElement[] = [];
       for (const key of slotKeys) {
         const row = gridEl.createDiv({ cls: "pixel-calendar-row" });
+        rowEls.push(row);
         row.setAttr("data-slot", key);
         if (key.endsWith(":00")) row.addClass("is-hour");
         if (isToday && key === currentSlotKey(now)) row.addClass("is-now");
@@ -1655,7 +1712,9 @@ export default class FolderRoutinesPlugin extends Plugin {
           addTaskAt(zone, key);
         });
       }
-      layoutEvents(gridEl.createDiv({ cls: "pixel-calendar-events" }));
+      // rows vary in height, so keep an unscaled ruler for the resize maths
+      gridEl.createDiv({ cls: "pixel-calendar-unit" });
+      layoutEvents(gridEl.createDiv({ cls: "pixel-calendar-events" }), rowEls);
     };
 
     refresh = () => {

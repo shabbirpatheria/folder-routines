@@ -1564,7 +1564,8 @@
   display: grid;
   grid-template-columns: var(--fr-time-w) minmax(0, 1fr);
   align-items: stretch;
-  height: var(--fr-slot-h);
+  /* a slot grows when more events stack inside it than fit side by side */
+  height: calc(var(--fr-slot-h) * var(--fr-row-units, 1));
   border-top: 1px solid color-mix(in srgb, var(--fr-line-dark) 45%, transparent);
 }
 .pixel-calendar-row:first-child {
@@ -1577,11 +1578,21 @@
   background: color-mix(in srgb, var(--fr-accent) 22%, transparent);
   box-shadow: inset 3px 0 0 0 var(--fr-accent);
 }
+/* zero-height ruler: one unscaled slot, used to measure a drag in minutes */
+.pixel-calendar-unit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: var(--fr-slot-h);
+  visibility: hidden;
+  pointer-events: none;
+}
 .pixel-calendar-time {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-end;
-  padding: 0 0.45rem;
+  padding: 0.3rem 0.45rem 0;
   color: var(--fr-ink-muted);
   font-size: 0.62rem;
   font-weight: 800;

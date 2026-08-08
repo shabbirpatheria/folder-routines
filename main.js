@@ -34,7 +34,10 @@ var DEFAULT_SETTINGS = {
   pixelCalendarTimesProperty: "pixelCalendarTimes"
 };
 var SLOT_MINUTES = 30;
-var MIN_DURATION = 15;
+var MIN_DURATION = 30;
+var RESIZE_STEP = 30;
+var MAX_COLUMNS = 2;
+var MAX_BANDS = 8;
 var DAY_MINUTES = 24 * 60;
 var SUBTASK_SEP = "::";
 var CUSTOM_REF_PREFIX = "custom:";
@@ -1105,13 +1108,13 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
       });
     };
     const rowHeightPx = () => {
-      const row = gridEl.querySelector(
-        ".pixel-calendar-row"
+      const unit = gridEl.querySelector(
+        ".pixel-calendar-unit"
       );
-      const h = row?.getBoundingClientRect().height ?? 0;
+      const h = unit?.getBoundingClientRect().height ?? 0;
       return h > 0 ? h : 0;
     };
-    const snap = (mins) => Math.round(mins / MIN_DURATION) * MIN_DURATION;
+    const snap = (mins) => Math.round(mins / RESIZE_STEP) * RESIZE_STEP;
     const decorateEvent = (chip, ref, span) => {
       const handle = chip.createDiv({ cls: "pixel-calendar-event-handle" });
       handle.setAttr("aria-label", "Drag to change duration");
@@ -1346,62 +1349,87 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
         });
       });
     };
-    const layoutEvents = (layer) => {
+    const layoutEvents = (layer, rowEls) => {
       const items = [];
       for (const key of Object.keys(plan)) {
         for (const ref of plan[key])
           items.push({ ref, span: spanOf(ref, key) });
       }
       items.sort(
-        (a, b) => a.span.start - b.span.start || a.span.end - b.span.end
+        (a, b) => a.span.start - b.span.start || b.span.end - b.span.start - (a.span.end - a.span.start)
       );
-      const laneOf = /* @__PURE__ */ new Map();
-      const lanesIn = /* @__PURE__ */ new Map();
-      let group = [];
-      let groupEnd = -1;
-      const flush = () => {
-        if (group.length === 0)
-          return;
-        const laneEnds = [];
-        for (const it of group) {
-          let lane = laneEnds.findIndex((end) => end <= it.span.start);
-          if (lane === -1) {
-            lane = laneEnds.length;
-            laneEnds.push(it.span.end);
-          } else {
-            laneEnds[lane] = it.span.end;
-          }
-          laneOf.set(it.ref, lane);
-        }
-        for (const it of group)
-          lanesIn.set(it.ref, laneEnds.length);
-        group = [];
-        groupEnd = -1;
+      const firstRow = (min) => Math.floor(min / SLOT_MINUTES);
+      const lastRow = (min) => Math.floor((min - 1) / SLOT_MINUTES);
+      const cellsOf = (r1, r2, band) => {
+        const out = [];
+        if (r1 === r2)
+          return [r1 * MAX_BANDS + band];
+        for (let b = band; b < MAX_BANDS; b++)
+          out.push(r1 * MAX_BANDS + b);
+        for (let r = r1 + 1; r < r2; r++)
+          for (let b = 0; b < MAX_BANDS; b++)
+            out.push(r * MAX_BANDS + b);
+        for (let b = 0; b <= band; b++)
+          out.push(r2 * MAX_BANDS + b);
+        return out;
       };
+      const taken = [];
+      for (let c = 0; c < MAX_COLUMNS; c++)
+        taken.push(/* @__PURE__ */ new Set());
+      const placed = [];
       for (const it of items) {
-        if (group.length > 0 && it.span.start >= groupEnd)
-          flush();
-        group.push(it);
-        groupEnd = Math.max(groupEnd, it.span.end);
+        const r1 = firstRow(it.span.start);
+        const r2 = Math.max(r1, lastRow(it.span.end));
+        let band = MAX_BANDS - 1;
+        let col = 0;
+        let cells = cellsOf(r1, r2, band);
+        let found = false;
+        for (let b = 0; b < MAX_BANDS && !found; b++) {
+          const candidate = cellsOf(r1, r2, b);
+          for (let c = 0; c < MAX_COLUMNS && !found; c++) {
+            if (candidate.some((k) => taken[c].has(k)))
+              continue;
+            band = b;
+            col = c;
+            cells = candidate;
+            found = true;
+          }
+        }
+        for (const k of cells)
+          taken[col].add(k);
+        placed.push({ ...it, r1, r2, band, col, cells });
       }
-      flush();
-      for (const it of items) {
-        const chip = renderSlotChip(layer, it.ref, it.span);
-        const lanes = lanesIn.get(it.ref) ?? 1;
-        const lane = laneOf.get(it.ref) ?? 0;
-        const units = (n) => n / SLOT_MINUTES;
-        chip.setAttr("data-start", formatHM(it.span.start));
-        chip.setAttr("data-end", formatHM(it.span.end));
-        chip.style.top = `calc(var(--fr-slot-h) * ${units(it.span.start)})`;
-        chip.style.height = `calc(var(--fr-slot-h) * ${units(
-          it.span.end - it.span.start
-        )} - 3px)`;
-        chip.style.left = `${lane / lanes * 100}%`;
-        chip.style.width = `${100 / lanes}%`;
+      const units = rowEls.map(() => 1);
+      for (const p of placed) {
+        for (let r = p.r1; r <= p.r2; r++)
+          if (r < units.length)
+            units[r] = Math.max(units[r], p.band + 1);
+      }
+      const rowTop = [];
+      let acc = 0;
+      for (let r = 0; r < units.length; r++) {
+        rowTop[r] = acc;
+        acc += units[r];
+        rowEls[r].style.setProperty("--fr-row-units", String(units[r]));
+      }
+      for (const p of placed) {
+        const chip = renderSlotChip(layer, p.ref, p.span);
+        const beside = placed.some(
+          (o) => o !== p && o.col !== p.col && o.cells.some((k) => p.cells.includes(k))
+        );
+        const top = rowTop[p.r1] + p.band + (p.span.start - p.r1 * SLOT_MINUTES) / SLOT_MINUTES;
+        const bottom = rowTop[p.r2] + p.band + (p.span.end - p.r2 * SLOT_MINUTES) / SLOT_MINUTES;
+        chip.setAttr("data-start", formatHM(p.span.start));
+        chip.setAttr("data-end", formatHM(p.span.end));
+        chip.setAttr("data-band", String(p.band));
+        chip.style.top = `calc(var(--fr-slot-h) * ${top})`;
+        chip.style.height = `calc(var(--fr-slot-h) * ${bottom - top} - 3px)`;
+        chip.style.left = beside ? `${p.col * 50}%` : "0%";
+        chip.style.width = beside ? "50%" : "100%";
         wireDropZone(chip, (ref) => {
-          if (ref === it.ref)
+          if (ref === p.ref)
             return;
-          placeRef(ref, slotKeyForMinutes(it.span.start));
+          placeRef(ref, slotKeyForMinutes(p.span.start));
           delete spans[ref];
           refresh();
           persist();
@@ -1409,8 +1437,10 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
       }
     };
     const rebuildGrid = () => {
+      const rowEls = [];
       for (const key of slotKeys) {
         const row = gridEl.createDiv({ cls: "pixel-calendar-row" });
+        rowEls.push(row);
         row.setAttr("data-slot", key);
         if (key.endsWith(":00"))
           row.addClass("is-hour");
@@ -1436,7 +1466,8 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
           addTaskAt(zone, key);
         });
       }
-      layoutEvents(gridEl.createDiv({ cls: "pixel-calendar-events" }));
+      gridEl.createDiv({ cls: "pixel-calendar-unit" });
+      layoutEvents(gridEl.createDiv({ cls: "pixel-calendar-events" }), rowEls);
     };
     refresh = () => {
       const prevScroll = gridWrap.scrollTop;
