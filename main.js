@@ -1702,6 +1702,10 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
           cls: "routine-stats-cell routine-stats-rowlabel",
           text: row.file.basename
         });
+        const runLen = [];
+        row.flags.forEach((done, di) => {
+          runLen[di] = done ? (di > 0 ? runLen[di - 1] : 0) + 1 : 0;
+        });
         row.flags.forEach((done, di) => {
           if (di % 7 === 0 && di !== 0)
             grid.createDiv({ cls: "routine-stats-spacer" });
@@ -1711,8 +1715,32 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
           cell.toggleClass("is-done", done);
           if (di === days - 1)
             cell.addClass("is-today-col");
+          const prevDone = di > 0 && row.flags[di - 1] === true;
+          const nextDone = row.flags[di + 1] === true;
+          const isRunEnd = done && !nextDone;
+          const streak = runLen[di];
+          if (done && (prevDone || nextDone))
+            cell.addClass("is-run");
+          if (done && prevDone)
+            cell.addClass("is-run-cont");
+          if (done && nextDone) {
+            cell.addClass("is-run-link");
+            if ((di + 1) % 7 === 0)
+              cell.addClass("is-week-bridge");
+          }
+          if (isRunEnd && streak > 1) {
+            cell.addClass("is-run-end");
+            cell.createSpan({
+              cls: "routine-stats-run-count",
+              text: String(streak)
+            });
+            cell.setAttr("data-streak", String(streak));
+          }
           const ds = dateStrs[di];
-          cell.setAttr("aria-label", `${row.file.basename} \xB7 ${ds}`);
+          cell.setAttr(
+            "aria-label",
+            isRunEnd && streak > 1 ? `${row.file.basename} \xB7 ${ds} \xB7 ${streak} day streak` : `${row.file.basename} \xB7 ${ds}`
+          );
           cell.setAttr("role", "button");
           cell.tabIndex = 0;
           const toggle = async () => {
@@ -1722,6 +1750,15 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
             const target = !cell.hasClass("is-done");
             cell.toggleClass("is-done", target);
             cell.toggleClass("is-missed", !target);
+            cell.empty();
+            for (const c of [
+              "is-run",
+              "is-run-cont",
+              "is-run-link",
+              "is-run-end",
+              "is-week-bridge"
+            ])
+              cell.removeClass(c);
             try {
               const subtasks = this.getSubtasks(row.file);
               if (subtasks.length > 0) {

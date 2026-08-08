@@ -1,8 +1,48 @@
 # Pixel Habits
 
-An [Obsidian](https://obsidian.md) plugin that turns a folder of routine notes into an interactive, retro **16-bit RPG-style** habit checklist, day planner, and stats screen. Checking an item off logs the daily note's date into that routine note — a drag-and-drop pixel calendar lets you schedule habits into the day, and a companion stats board visualizes your consistency like a JRPG character screen.
+Turn a folder of notes into a retro **16-bit RPG** habit tracker for [Obsidian](https://obsidian.md) — a checklist, a day planner, and a stats screen.
+
+## Habits
+
+Every note in your routines folder becomes a checkbox, grouped into colour-coded sections. Ticking one writes today's date into that note, so your history lives in your vault as plain frontmatter.
 
 ![The Pixel Habits checklist: collapsible, colour-coded sections of habits with pixel checkboxes](assets/checklist.png)
+
+## Day plan
+
+Drag habits from the tray into the day, stretch them to however long they really take, and check them off in place. Double-click an empty slot for a one-off task that isn't part of your routines.
+
+![The pixel calendar: habits dragged from the side tray into half-hour time slots across the day](assets/calendar.png)
+
+## Stats
+
+A JRPG character screen for your consistency: levels, ranks, XP, achievements, and a heatmap where streaks join into a single bar labelled with its length.
+
+![The stats board: an RPG character screen with level, streaks, a completion bar, heatmap, and achievement badges](assets/stats.png)
+
+## Quick start
+
+1. Install the plugin (see [Installation](#installation)) and put your habit notes in a `Routines` folder.
+2. Add any of these code blocks to your daily note — there's an **Insert…** command for each:
+
+````markdown
+```routines
+```
+
+```pixel-calendar
+```
+
+```routine-stats
+```
+````
+
+All three stay in sync as you click, and everything is stored in your notes' frontmatter.
+
+---
+
+# Reference
+
+Everything below is optional detail — the plugin works out of the box.
 
 ## How it works
 
@@ -85,8 +125,6 @@ Plan your day by adding a `pixel-calendar` code block to your daily note (or use
 
 This renders a single-day planner titled **Day Plan** for the daily note's date, with 48 half-hour slots covering 24 hours. Every habit — and its subtasks — appears in a side tray:
 
-![The pixel calendar: habits dragged from the side tray into half-hour time slots across the day](assets/calendar.png)
-
 - **Drag** a habit or subtask from the tray into any time slot to schedule it. The plan is saved to the daily note's `pixelCalendarPlan` frontmatter property, so it persists across reloads.
 - **Double-click an empty time slot** to add a **one-off task** for that day — something that isn't one of your routines (see below).
 - **Stretch** anything you've scheduled: drag the bottom edge of a block to make it span more time.
@@ -163,36 +201,16 @@ Add a stats screen to **any** note with the `routine-stats` code block (or use t
 
 This renders a retro RPG **character-stats screen** with one board per folder/section, showing the last **21 days**:
 
-![The stats board: an RPG character screen with level, streaks, a completion bar, heatmap, and achievement badges](assets/stats.png)
-
 - **Header** — category banner, section title, level (`LV.n`), current streak, and a rank badge (S/A/B/C/D/E).
 - **Quick stats** — best streak, current streak, completion %, and earned XP.
 - **Completion HUD** — a block-based HP/XP-style progress bar.
-- **Heatmap** — routines × days grid; completed days are filled in the section's color, grouped by week with per-row totals.
+- **Heatmap** — routines × days grid; completed days are filled in the section's color, grouped by week with per-row totals. **Consecutive completed days are joined into a single bar**, and the last day of each run is stamped with the streak length.
 - **Weekly milestones** — star ratings and rank per week, with a special *Perfect Week* state.
 - **Trend** — a pixel sparkline of daily completions.
 - **Lifetime stats** — best streak, success rate, missed days, and XP gained.
 - **Achievements** — collectible pixel badges (First Clear, 7-Day Streak, Perfect Day, Perfect Week, 100% Complete).
 
 **Click any cell** in the heatmap to add or remove a completion for that routine on that day — it writes to the same `entries` (and fans out to subtasks) exactly like the checklist, and the board updates live.
-
-## Features
-
-- Checklist generated automatically from a folder structure
-- Section headers derived from subfolder names
-- Collapsible sections, plus a top-level **Habits** toggle to collapse the whole block
-- Retro 16-bit RPG-style UI with pixel windows, bevels, and light/dark theming
-- Section colors assigned by order (Blue, Amber, Green, Red, Purple), cycling and restarting per parent section
-- Live per-section progress bars and completion counts
-- Checking an item writes the daily note's date into that note's `entries` property; unchecking removes it
-- Optional nested subtasks with pixel tree connectors: completing all subtasks completes the parent, and toggling the parent toggles all subtasks
-- `pixel-calendar` day planner: drag habits and subtasks into 30-minute slots, check them off from the slot or the side tray, with a collapsible **Day Plan** header and an accordion tray; the plan is saved in the daily note's `pixelCalendarPlan` property
-- One-off day tasks: double-click an empty time slot to add a task that isn't part of your routines, stored in the daily note's `pixelCalendarTasks` property
-- Stretchable calendar blocks (drag the bottom edge), stored in the daily note's `pixelCalendarTimes` property; overlapping blocks are laid out side by side
-- Live sync: checking an item in the calendar, the checklist, or the stats board updates every other block on the page instantly
-- `routine-stats` board: per-folder heatmap, streaks, levels, ranks, XP, weekly milestones, trend, and achievements
-- Clickable heatmap cells to log/remove completions directly from the stats board
-- The daily note's date is parsed from its filename using your Daily Notes / Periodic Notes format
 
 ## Settings
 
