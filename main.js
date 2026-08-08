@@ -29,10 +29,38 @@ var DEFAULT_SETTINGS = {
   storeDateFormat: "YYYY-MM-DD",
   subtasksProperty: "subtasks",
   subtaskEntriesProperty: "subtaskEntries",
-  pixelCalendarProperty: "pixelCalendarPlan"
+  pixelCalendarProperty: "pixelCalendarPlan",
+  pixelCalendarTasksProperty: "pixelCalendarTasks",
+  pixelCalendarTimesProperty: "pixelCalendarTimes"
 };
 var SLOT_MINUTES = 30;
+var MIN_DURATION = 15;
+var DAY_MINUTES = 24 * 60;
 var SUBTASK_SEP = "::";
+var CUSTOM_REF_PREFIX = "custom:";
+function clampMinute(v) {
+  return Math.max(0, Math.min(DAY_MINUTES, Math.round(v)));
+}
+function formatHM(min) {
+  const m = clampMinute(min);
+  const h = Math.floor(m / 60);
+  return String(h === 24 ? 24 : h).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+}
+function parseHM(text) {
+  const s = String(text ?? "").trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (!m)
+    return null;
+  const h = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(mm) || mm > 59 || h > 24)
+    return null;
+  return clampMinute(h * 60 + mm);
+}
+function slotKeyForMinutes(min) {
+  const snapped = Math.floor(Math.min(min, DAY_MINUTES - SLOT_MINUTES) / SLOT_MINUTES) * SLOT_MINUTES;
+  return formatHM(Math.max(0, snapped));
+}
 function makeRef(path, subtask) {
   return subtask != null && subtask !== "" ? path + SUBTASK_SEP + subtask : path;
 }
@@ -41,6 +69,18 @@ function parseRef(ref) {
   if (idx === -1)
     return { path: ref, subtask: null };
   return { path: ref.slice(0, idx), subtask: ref.slice(idx + SUBTASK_SEP.length) };
+}
+function isCustomRef(ref) {
+  return ref.startsWith(CUSTOM_REF_PREFIX);
+}
+function makeCustomRef(id) {
+  return CUSTOM_REF_PREFIX + id;
+}
+function customRefId(ref) {
+  return ref.slice(CUSTOM_REF_PREFIX.length);
+}
+function newCustomTaskId() {
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
 }
 function buildSlotKeys() {
   const keys = [];
@@ -69,7 +109,15 @@ function getDailyNoteFormat(app) {
   }
   return "YYYY-MM-DD";
 }
-var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
+var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.Plugin {
+  constructor() {
+    super(...arguments);
+    /* ============================================================
+       Live sync between blocks
+       ============================================================ */
+    this.changeListeners = /* @__PURE__ */ new Set();
+    this.blockSeq = 0;
+  }
   async onload() {
     await this.loadSettings();
     this.registerMarkdownCodeBlockProcessor(
@@ -78,7 +126,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     );
     this.registerMarkdownCodeBlockProcessor(
       "routine-stats",
-      (source, el) => this.renderStats(source, el)
+      (source, el, ctx) => this.renderStats(source, el, ctx)
     );
     this.registerMarkdownCodeBlockProcessor(
       "pixel-calendar",
@@ -112,6 +160,27 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
   }
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+  nextBlockId() {
+    this.blockSeq += 1;
+    return `fr-block-${this.blockSeq}`;
+  }
+  /* Register a listener bound to a rendered code block: it is dropped as soon
+     as Obsidian unloads that block's element. */
+  registerBlockListener(el, ctx, listener) {
+    this.changeListeners.add(listener);
+    const child = new import_obsidian.MarkdownRenderChild(el);
+    child.register(() => this.changeListeners.delete(listener));
+    ctx.addChild(child);
+  }
+  emitRoutineChange(e) {
+    for (const listener of [...this.changeListeners]) {
+      try {
+        listener(e);
+      } catch (err) {
+        console.error("Folder Routines: sync listener failed", err);
+      }
+    }
   }
   normalizeEntries(val) {
     if (val == null)
@@ -160,8 +229,10 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     for (const name of subtasks) {
       const set = new Set(current[name] ?? []);
       const before = set.size;
-      for (const d of parentDates) set.add(d);
-      if (set.size !== before) changed = true;
+      for (const d of parentDates)
+        set.add(d);
+      if (set.size !== before)
+        changed = true;
       resolved[name] = [...set].sort();
     }
     if (changed) {
@@ -170,7 +241,8 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         const map = this.normalizeSubtaskEntries(fmw[subProp]);
         for (const name of subtasks) {
           const set = new Set(map[name] ?? []);
-          for (const d of pDates) set.add(d);
+          for (const d of pDates)
+            set.add(d);
           map[name] = [...set].sort();
         }
         fmw[subProp] = map;
@@ -195,6 +267,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
   async setSubtaskEntry(file, name, dateStr, checked, allSubtasks) {
     const entriesProp = this.settings.entriesProperty;
     const subProp = this.settings.subtaskEntriesProperty;
+    let parentChecked = false;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
       const map = this.normalizeSubtaskEntries(fm[subProp]);
       let dates = map[name] ?? [];
@@ -207,6 +280,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       dates.sort();
       map[name] = dates;
       const allDone = allSubtasks.every((s) => (map[s] ?? []).includes(dateStr));
+      parentChecked = allDone;
       let entries = this.normalizeEntries(fm[entriesProp]);
       if (allDone) {
         if (!entries.includes(dateStr))
@@ -222,6 +296,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         fm[subProp] = map;
       }
     });
+    return parentChecked;
   }
   async setParentToggleAll(file, dateStr, checked, allSubtasks) {
     const entriesProp = this.settings.entriesProperty;
@@ -284,13 +359,19 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     header.createSpan({ cls: "folder-routines-heading-title", text: "Habits" });
     this.createProgress(header);
     const body = section.createDiv({ cls: "folder-routines-body" });
-    await this.renderFolder(root, body, dateStr, 3);
+    const sync = { id: this.nextBlockId(), setters: /* @__PURE__ */ new Map() };
+    await this.renderFolder(root, body, dateStr, 3, sync);
     this.updateSectionProgress(section);
+    this.registerBlockListener(el, ctx, (ev) => {
+      if (ev.originId === sync.id || ev.dateStr !== dateStr)
+        return;
+      sync.setters.get(makeRef(ev.path, ev.subtask))?.(ev.checked);
+    });
     header.addEventListener("click", () => {
       section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
     });
   }
-  async renderFolder(folder, container, dateStr, depth) {
+  async renderFolder(folder, container, dateStr, depth, sync) {
     const children = [...folder.children].sort(
       (a, b) => a.name.localeCompare(b.name)
     );
@@ -303,12 +384,12 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     let index = 0;
     for (const file of files) {
       index++;
-      await this.renderItem(file, container, dateStr, index);
+      await this.renderItem(file, container, dateStr, index, sync);
     }
     for (let sectionIndex = 0; sectionIndex < subfolders.length; sectionIndex++) {
       const sub = subfolders[sectionIndex];
       const section = container.createDiv({ cls: "folder-routines-section" });
-      const colorIndex = sectionIndex % FolderRoutinesPlugin.SECTION_COLORS;
+      const colorIndex = sectionIndex % _FolderRoutinesPlugin.SECTION_COLORS;
       section.addClass(`folder-routines-color-${colorIndex + 1}`);
       const tag = "h" + Math.min(depth, 6);
       const header = section.createEl(tag, { cls: "folder-routines-heading" });
@@ -317,7 +398,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       header.createSpan({ cls: "folder-routines-heading-title", text: sub.name });
       this.createProgress(header);
       const body = section.createDiv({ cls: "folder-routines-body" });
-      await this.renderFolder(sub, body, dateStr, depth + 1);
+      await this.renderFolder(sub, body, dateStr, depth + 1, sync);
       this.updateSectionProgress(section);
       header.addEventListener("click", () => {
         section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
@@ -330,7 +411,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     badge.createSpan({ cls: "folder-routines-progress-label", text: "QUESTS" });
     badge.createSpan({ cls: "folder-routines-progress-count", text: "0/0" });
     const bar = progress.createDiv({ cls: "folder-routines-progress-bar" });
-    for (let i = 0; i < FolderRoutinesPlugin.PROGRESS_BLOCKS; i++) {
+    for (let i = 0; i < _FolderRoutinesPlugin.PROGRESS_BLOCKS; i++) {
       bar.createDiv({ cls: "folder-routines-progress-block" });
     }
   }
@@ -384,15 +465,6 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     });
     window.setTimeout(() => popup.remove(), 900);
   }
-  wireSelection(itemEl) {
-    const select = () => {
-      const root = itemEl.closest(".folder-routines");
-      root?.querySelectorAll(".is-selected").forEach((n) => n.removeClass("is-selected"));
-      itemEl.addClass("is-selected");
-    };
-    itemEl.addEventListener("pointerdown", select);
-    itemEl.addEventListener("focusin", select);
-  }
   getCategoryIcon(_name) {
     return "\u25C6";
   }
@@ -403,7 +475,16 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       section = section.parentElement?.closest(".folder-routines-section") ?? null;
     }
   }
-  async renderItem(file, container, dateStr, index = 0) {
+  wireSelection(itemEl) {
+    const select = () => {
+      const root = itemEl.closest(".folder-routines");
+      root?.querySelectorAll(".is-selected").forEach((n) => n.removeClass("is-selected"));
+      itemEl.addClass("is-selected");
+    };
+    itemEl.addEventListener("pointerdown", select);
+    itemEl.addEventListener("focusin", select);
+  }
+  async renderItem(file, container, dateStr, index = 0, sync) {
     const subtasks = this.getSubtasks(file);
     const itemEl = container.createDiv({ cls: "folder-routines-item" });
     itemEl.tabIndex = 0;
@@ -424,6 +505,13 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       checkbox.classList.add("folder-routines-progress-checkbox");
       checkbox.checked = this.isChecked(file, dateStr);
       itemEl.toggleClass("is-checked", checkbox.checked);
+      sync?.setters.set(file.path, (checked) => {
+        if (checkbox.checked === checked)
+          return;
+        checkbox.checked = checked;
+        itemEl.toggleClass("is-checked", checked);
+        this.updateAncestorProgress(itemEl);
+      });
       checkbox.addEventListener("change", async () => {
         const target = checkbox.checked;
         checkbox.disabled = true;
@@ -432,6 +520,15 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           itemEl.toggleClass("is-checked", target);
           if (target)
             this.showXpPopup(itemEl);
+          this.emitRoutineChange({
+            dateStr,
+            path: file.path,
+            subtask: null,
+            checked: target,
+            parentChecked: target,
+            subtasks: [],
+            originId: sync?.id ?? ""
+          });
         } catch (e) {
           console.error("Folder Routines: failed to update frontmatter", e);
           new import_obsidian.Notice(`Folder Routines: failed to update ${file.basename}`);
@@ -473,15 +570,38 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       subLabel.createSpan({ text: name, cls: "folder-routines-text" });
       subItem.toggleClass("is-checked", subCheckbox.checked);
       subEls.push({ name, el: subItem, checkbox: subCheckbox });
+      sync?.setters.set(makeRef(file.path, name), (checked) => {
+        if (subCheckbox.checked === checked)
+          return;
+        subCheckbox.checked = checked;
+        subItem.toggleClass("is-checked", checked);
+        refreshParent();
+        this.updateAncestorProgress(subItem);
+      });
       subCheckbox.addEventListener("change", async () => {
         const target = subCheckbox.checked;
         setAllDisabled(true);
         try {
-          await this.setSubtaskEntry(file, name, dateStr, target, subtasks);
+          const parentChecked = await this.setSubtaskEntry(
+            file,
+            name,
+            dateStr,
+            target,
+            subtasks
+          );
           subItem.toggleClass("is-checked", target);
           if (target)
             this.showXpPopup(subItem);
           refreshParent();
+          this.emitRoutineChange({
+            dateStr,
+            path: file.path,
+            subtask: name,
+            checked: target,
+            parentChecked,
+            subtasks,
+            originId: sync?.id ?? ""
+          });
         } catch (e) {
           console.error("Folder Routines: failed to update frontmatter", e);
           new import_obsidian.Notice(`Folder Routines: failed to update ${file.basename}`);
@@ -493,6 +613,15 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       });
     });
     refreshParent();
+    sync?.setters.set(file.path, (checked) => {
+      checkbox.checked = checked;
+      itemEl.toggleClass("is-checked", checked);
+      for (const s of subEls) {
+        s.checkbox.checked = checked;
+        s.el.toggleClass("is-checked", checked);
+      }
+      this.updateAncestorProgress(itemEl);
+    });
     checkbox.addEventListener("change", async () => {
       const target = checkbox.checked;
       setAllDisabled(true);
@@ -503,6 +632,15 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           s.checkbox.checked = target;
           s.el.toggleClass("is-checked", target);
         }
+        this.emitRoutineChange({
+          dateStr,
+          path: file.path,
+          subtask: null,
+          checked: target,
+          parentChecked: target,
+          subtasks,
+          originId: sync?.id ?? ""
+        });
       } catch (e) {
         console.error("Folder Routines: failed to update frontmatter", e);
         new import_obsidian.Notice(`Folder Routines: failed to update ${file.basename}`);
@@ -513,6 +651,9 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       }
     });
   }
+  /* ============================================================
+     Pixel calendar (```pixel-calendar```)
+     ============================================================ */
   loadPlan(file) {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
     const raw = fm?.[this.settings.pixelCalendarProperty];
@@ -524,20 +665,90 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     }
     return out;
   }
-  async savePlan(file, plan) {
-    const prop = this.settings.pixelCalendarProperty;
+  async savePlanState(file, plan, tasks, spans) {
+    const planProp = this.settings.pixelCalendarProperty;
+    const taskProp = this.settings.pixelCalendarTasksProperty;
+    const timeProp = this.settings.pixelCalendarTimesProperty;
+    const scheduled = /* @__PURE__ */ new Set();
     await this.app.fileManager.processFrontMatter(file, (fm) => {
-      const clean = {};
+      const cleanPlan = {};
       for (const [k, v] of Object.entries(plan)) {
-        if (Array.isArray(v) && v.length > 0)
-          clean[k] = [...v];
+        if (Array.isArray(v) && v.length > 0) {
+          cleanPlan[k] = [...v];
+          for (const ref of v)
+            scheduled.add(ref);
+        }
       }
-      if (Object.keys(clean).length === 0) {
-        delete fm[prop];
+      if (Object.keys(cleanPlan).length === 0) {
+        delete fm[planProp];
       } else {
-        fm[prop] = clean;
+        fm[planProp] = cleanPlan;
+      }
+      const cleanTasks = {};
+      for (const [id, task] of Object.entries(tasks)) {
+        if (task && task.title.trim().length > 0) {
+          cleanTasks[id] = { title: task.title, done: task.done === true };
+        }
+      }
+      if (Object.keys(cleanTasks).length === 0) {
+        delete fm[taskProp];
+      } else {
+        fm[taskProp] = cleanTasks;
+      }
+      const cleanSpans = {};
+      for (const [ref, span] of Object.entries(spans)) {
+        if (!scheduled.has(ref) || !span)
+          continue;
+        const isDefault = span.start % SLOT_MINUTES === 0 && span.end - span.start === SLOT_MINUTES;
+        if (isDefault)
+          continue;
+        cleanSpans[ref] = { start: formatHM(span.start), end: formatHM(span.end) };
+      }
+      if (Object.keys(cleanSpans).length === 0) {
+        delete fm[timeProp];
+      } else {
+        fm[timeProp] = cleanSpans;
       }
     });
+  }
+  loadTimeSpans(file) {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const raw = fm?.[this.settings.pixelCalendarTimesProperty];
+    const out = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+      return out;
+    for (const [ref, value] of Object.entries(raw)) {
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        continue;
+      const obj = value;
+      const start = parseHM(obj.start);
+      const end = parseHM(obj.end);
+      if (start == null || end == null)
+        continue;
+      out[ref] = { start, end: Math.max(end, start + MIN_DURATION) };
+    }
+    return out;
+  }
+  /* One-off tasks for a single day, stored alongside the plan on the daily
+     note so they never touch the routine folder. */
+  loadCustomTasks(file) {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const raw = fm?.[this.settings.pixelCalendarTasksProperty];
+    const out = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+      return out;
+    for (const [id, value] of Object.entries(raw)) {
+      if (typeof value === "string") {
+        if (value.trim())
+          out[id] = { title: value, done: false };
+      } else if (value && typeof value === "object" && !Array.isArray(value)) {
+        const obj = value;
+        const title = obj.title == null ? "" : String(obj.title);
+        if (title.trim())
+          out[id] = { title, done: obj.done === true };
+      }
+    }
+    return out;
   }
   collectHabitFiles(folder, out) {
     const children = [...folder.children].sort(
@@ -578,6 +789,9 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     }
     const dateStr = date.format(this.settings.storeDateFormat || "YYYY-MM-DD");
     const plan = this.loadPlan(noteFile);
+    const customTasks = this.loadCustomTasks(noteFile);
+    const spans = this.loadTimeSpans(noteFile);
+    const blockId = this.nextBlockId();
     const habitFiles = [];
     this.collectHabitFiles(root, habitFiles);
     const colorByPath = /* @__PURE__ */ new Map();
@@ -585,20 +799,21 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       const kids = [...folder.children].sort(
         (a, b) => a.name.localeCompare(b.name)
       );
-      const files2 = kids.filter(
+      const files = kids.filter(
         (c) => c instanceof import_obsidian.TFile && c.extension === "md"
       );
-      const subs2 = kids.filter((c) => c instanceof import_obsidian.TFolder);
-      for (const f of files2)
-        if (inherited > 0) colorByPath.set(f.path, inherited);
-      subs2.forEach(
-        (sub, i) => assignColors(sub, i % FolderRoutinesPlugin.SECTION_COLORS + 1)
+      const subs = kids.filter((c) => c instanceof import_obsidian.TFolder);
+      for (const f of files)
+        if (inherited > 0)
+          colorByPath.set(f.path, inherited);
+      subs.forEach(
+        (sub, i) => assignColors(sub, i % _FolderRoutinesPlugin.SECTION_COLORS + 1)
       );
     };
     assignColors(root, 0);
     const applyColor = (elm, path) => {
-      const c = colorByPath.get(path);
-      if (c) elm.addClass(`folder-routines-color-${c}`);
+      const c = colorByPath.get(path) ?? 1;
+      elm.addClass(`folder-routines-color-${c}`);
     };
     const done = /* @__PURE__ */ new Set();
     const subtasksByPath = /* @__PURE__ */ new Map();
@@ -646,6 +861,12 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           delete plan[k];
       }
     };
+    const discardRef = (ref) => {
+      removeRefEverywhere(ref);
+      delete spans[ref];
+      if (isCustomRef(ref))
+        delete customTasks[customRefId(ref)];
+    };
     const placeRef = (ref, slotKey) => {
       removeRefEverywhere(ref);
       if (!plan[slotKey])
@@ -653,20 +874,36 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       if (!plan[slotKey].includes(ref))
         plan[slotKey].push(ref);
     };
+    const spanOf = (ref, slotKey) => {
+      const explicit = spans[ref];
+      if (explicit)
+        return explicit;
+      const start = parseHM(slotKey) ?? 0;
+      return { start, end: start + SLOT_MINUTES };
+    };
+    const durationOf = (ref) => {
+      const slotKey = slotOfRef(ref);
+      if (!slotKey)
+        return SLOT_MINUTES;
+      const s = spanOf(ref, slotKey);
+      return s.end - s.start;
+    };
+    const setSpan = (ref, startMin, endMin) => {
+      const start = clampMinute(Math.min(startMin, DAY_MINUTES - MIN_DURATION));
+      const end = clampMinute(Math.max(endMin, start + MIN_DURATION));
+      spans[ref] = { start, end };
+      placeRef(ref, slotKeyForMinutes(start));
+    };
+    let saveChain = Promise.resolve();
     const persist = () => {
-      this.savePlan(noteFile, plan).catch((e) => {
+      saveChain = saveChain.then(() => this.savePlanState(noteFile, plan, customTasks, spans)).catch((e) => {
         console.error("Folder Routines: failed to save pixel calendar plan", e);
         new import_obsidian.Notice("Folder Routines: failed to save calendar plan");
       });
     };
-    const setRefDone = async (ref, target) => {
-      const { path, subtask } = parseRef(ref);
-      const file = fileForPath(path);
-      if (!file)
-        return;
-      const subs = subtasksByPath.get(path) ?? [];
+    const applyDone = (path, subtask, target, subs) => {
       if (subtask != null) {
-        await this.setSubtaskEntry(file, subtask, dateStr, target, subs);
+        const ref = makeRef(path, subtask);
         if (target)
           done.add(ref);
         else
@@ -677,7 +914,6 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         else
           done.delete(path);
       } else if (subs.length > 0) {
-        await this.setParentToggleAll(file, dateStr, target, subs);
         if (target) {
           done.add(path);
           for (const s of subs)
@@ -688,14 +924,56 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
             done.delete(makeRef(path, s));
         }
       } else {
-        await this.setEntry(file, dateStr, target);
         if (target)
           done.add(path);
         else
           done.delete(path);
       }
     };
+    const setRefDone = async (ref, target) => {
+      if (isCustomRef(ref)) {
+        const task = customTasks[customRefId(ref)];
+        if (!task)
+          return;
+        task.done = target;
+        persist();
+        return;
+      }
+      const { path, subtask } = parseRef(ref);
+      const file = fileForPath(path);
+      if (!file)
+        return;
+      const subs = subtasksByPath.get(path) ?? [];
+      let parentChecked = target;
+      if (subtask != null) {
+        parentChecked = await this.setSubtaskEntry(
+          file,
+          subtask,
+          dateStr,
+          target,
+          subs
+        );
+      } else if (subs.length > 0) {
+        await this.setParentToggleAll(file, dateStr, target, subs);
+      } else {
+        await this.setEntry(file, dateStr, target);
+      }
+      applyDone(path, subtask, target, subs);
+      this.emitRoutineChange({
+        dateStr,
+        path,
+        subtask,
+        checked: target,
+        parentChecked,
+        subtasks: subs,
+        originId: blockId
+      });
+    };
     const refLabel = (ref) => {
+      if (isCustomRef(ref)) {
+        const task = customTasks[customRefId(ref)];
+        return { text: task ? task.title : "Missing task", parent: "TASK" };
+      }
       const { path, subtask } = parseRef(ref);
       const file = fileForPath(path);
       const base = file ? file.basename : (path.split("/").pop() ?? path).replace(/\.md$/, "");
@@ -734,7 +1012,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     };
     const container = el.createDiv({ cls: "folder-routines pixel-calendar" });
     const header = container.createDiv({ cls: "pixel-calendar-header" });
-    header.createSpan({ cls: "folder-routines-collapse-icon", text: "▼" });
+    header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BC" });
     header.createSpan({ cls: "pixel-calendar-title", text: "Day Plan" });
     header.createSpan({
       cls: "pixel-calendar-date",
@@ -753,14 +1031,20 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     let refresh = () => {
     };
     let openSideSection = null;
-    const addChipCheckbox = (chip, ref) => {
-      const checkbox = chip.createEl("input", {
+    const isRefDone = (ref) => {
+      if (isCustomRef(ref))
+        return customTasks[customRefId(ref)]?.done === true;
+      return done.has(ref);
+    };
+    const addChipCheckbox = (host, ref, chip = host) => {
+      const checkbox = host.createEl("input", {
         type: "checkbox"
       });
-      checkbox.checked = done.has(ref);
+      checkbox.checked = isRefDone(ref);
       if (checkbox.checked)
         chip.addClass("is-done");
       checkbox.addEventListener("click", (e) => e.stopPropagation());
+      checkbox.addEventListener("dblclick", (e) => e.stopPropagation());
       checkbox.addEventListener("change", async () => {
         const target = checkbox.checked;
         checkbox.disabled = true;
@@ -776,14 +1060,169 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       });
       return checkbox;
     };
-    const renderSlotChip = (zone, ref) => {
-      const { subtask } = parseRef(ref);
-      const file = fileForPath(parseRef(ref).path);
-      const chip = zone.createDiv({
-        cls: "pixel-calendar-chip pixel-calendar-slot-chip"
+    const openTaskInput = (host, initial, onCommit) => {
+      const wrap = host.createDiv({ cls: "pixel-calendar-task-input" });
+      const input = wrap.createEl("input", { type: "text" });
+      input.value = initial;
+      input.placeholder = "Task name\u2026";
+      input.setAttr("aria-label", "Task name");
+      let closed = false;
+      const finish = (commit) => {
+        if (closed)
+          return;
+        closed = true;
+        const value = input.value.trim();
+        if (commit && value)
+          onCommit(value);
+        else
+          refresh();
+      };
+      input.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          finish(true);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          finish(false);
+        }
+      });
+      input.addEventListener("blur", () => finish(true));
+      input.addEventListener("click", (e) => e.stopPropagation());
+      input.addEventListener("dblclick", (e) => e.stopPropagation());
+      window.setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 0);
+    };
+    const addTaskAt = (zone, slotKey) => {
+      openTaskInput(zone, "", (title) => {
+        const id = newCustomTaskId();
+        customTasks[id] = { title, done: false };
+        placeRef(makeCustomRef(id), slotKey);
+        refresh();
+        persist();
+      });
+    };
+    const rowHeightPx = () => {
+      const row = gridEl.querySelector(
+        ".pixel-calendar-row"
+      );
+      const h = row?.getBoundingClientRect().height ?? 0;
+      return h > 0 ? h : 0;
+    };
+    const snap = (mins) => Math.round(mins / MIN_DURATION) * MIN_DURATION;
+    const decorateEvent = (chip, ref, span) => {
+      const handle = chip.createDiv({ cls: "pixel-calendar-event-handle" });
+      handle.setAttr("aria-label", "Drag to change duration");
+      handle.setAttr("title", "Drag to stretch");
+      handle.addEventListener("click", (e) => e.stopPropagation());
+      handle.addEventListener("dblclick", (e) => e.stopPropagation());
+      handle.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rowH = rowHeightPx();
+        if (!rowH)
+          return;
+        const startY = e.clientY;
+        const startEnd = span.end;
+        let endMin = startEnd;
+        chip.addClass("is-resizing");
+        chip.setAttr("draggable", "false");
+        try {
+          handle.setPointerCapture(e.pointerId);
+        } catch (err) {
+        }
+        const onMove = (ev) => {
+          const deltaMin = (ev.clientY - startY) / rowH * SLOT_MINUTES;
+          endMin = clampMinute(
+            Math.max(span.start + MIN_DURATION, snap(startEnd + deltaMin))
+          );
+          chip.style.height = `calc(var(--fr-slot-h) * ${(endMin - span.start) / SLOT_MINUTES} - 3px)`;
+        };
+        const onUp = () => {
+          handle.removeEventListener("pointermove", onMove);
+          handle.removeEventListener("pointerup", onUp);
+          handle.removeEventListener("pointercancel", onUp);
+          chip.removeClass("is-resizing");
+          if (endMin !== startEnd) {
+            setSpan(ref, span.start, endMin);
+            persist();
+          }
+          refresh();
+        };
+        handle.addEventListener("pointermove", onMove);
+        handle.addEventListener("pointerup", onUp);
+        handle.addEventListener("pointercancel", onUp);
+      });
+    };
+    const renderCustomChip = (host, ref, span) => {
+      const id = customRefId(ref);
+      const task = customTasks[id];
+      const chip = host.createDiv({
+        cls: "pixel-calendar-chip pixel-calendar-slot-chip pixel-calendar-event is-custom"
       });
       makeDraggable(chip, ref);
-      applyColor(chip, parseRef(ref).path);
+      if (!task) {
+        chip.addClass("is-missing");
+        chip.createSpan({
+          cls: "pixel-calendar-chip-text",
+          text: "Missing task"
+        });
+      } else {
+        const head = chip.createDiv({ cls: "pixel-calendar-event-head" });
+        addChipCheckbox(head, ref, chip);
+        const info = head.createDiv({ cls: "pixel-calendar-chip-info" });
+        const title = info.createSpan({
+          cls: "pixel-calendar-chip-text",
+          text: task.title
+        });
+        info.createSpan({ cls: "pixel-calendar-chip-parent", text: "TASK" });
+        title.setAttr("title", "Double-click to rename");
+        const startRename = (e) => {
+          const target = e.target;
+          if (target?.closest(
+            ".pixel-calendar-event-handle, .pixel-calendar-chip-remove"
+          ))
+            return;
+          e.preventDefault();
+          e.stopPropagation();
+          chip.empty();
+          chip.addClass("is-editing");
+          chip.setAttr("draggable", "false");
+          openTaskInput(chip, task.title, (newTitle) => {
+            task.title = newTitle;
+            refresh();
+            persist();
+          });
+        };
+        chip.addEventListener("dblclick", startRename);
+        const remove = head.createEl("button", {
+          cls: "pixel-calendar-chip-remove",
+          text: "\xD7"
+        });
+        remove.setAttr("aria-label", "Delete task");
+        remove.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          discardRef(ref);
+          refresh();
+          persist();
+        });
+        decorateEvent(chip, ref, span);
+      }
+      return chip;
+    };
+    const renderSlotChip = (host, ref, span) => {
+      if (isCustomRef(ref))
+        return renderCustomChip(host, ref, span);
+      const { subtask, path } = parseRef(ref);
+      const file = fileForPath(path);
+      const chip = host.createDiv({
+        cls: "pixel-calendar-chip pixel-calendar-slot-chip pixel-calendar-event"
+      });
+      makeDraggable(chip, ref);
+      applyColor(chip, path);
       if (subtask != null)
         chip.addClass("is-subtask");
       if (!file) {
@@ -792,29 +1231,32 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           cls: "pixel-calendar-chip-text",
           text: refLabel(ref).text
         });
-      } else {
-        addChipCheckbox(chip, ref);
-        const info = chip.createDiv({ cls: "pixel-calendar-chip-info" });
-        const lbl = refLabel(ref);
-        info.createSpan({ cls: "pixel-calendar-chip-text", text: lbl.text });
-        if (lbl.parent)
-          info.createSpan({
-            cls: "pixel-calendar-chip-parent",
-            text: lbl.parent
-          });
+        return chip;
       }
-      const remove = chip.createEl("button", {
+      const head = chip.createDiv({ cls: "pixel-calendar-event-head" });
+      addChipCheckbox(head, ref, chip);
+      const info = head.createDiv({ cls: "pixel-calendar-chip-info" });
+      const lbl = refLabel(ref);
+      info.createSpan({ cls: "pixel-calendar-chip-text", text: lbl.text });
+      if (lbl.parent)
+        info.createSpan({
+          cls: "pixel-calendar-chip-parent",
+          text: lbl.parent
+        });
+      const remove = head.createEl("button", {
         cls: "pixel-calendar-chip-remove",
-        text: "×"
+        text: "\xD7"
       });
       remove.setAttr("aria-label", "Remove from calendar");
       remove.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        removeRefEverywhere(ref);
+        discardRef(ref);
         refresh();
         persist();
       });
+      decorateEvent(chip, ref, span);
+      return chip;
     };
     const renderSideHabit = (file, containerEl) => {
       const subs = subtasksByPath.get(file.path) ?? [];
@@ -830,7 +1272,11 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       const at = slotOfRef(file.path);
       if (at) {
         chip.addClass("is-scheduled");
-        info.createSpan({ cls: "pixel-calendar-chip-time", text: at });
+        const s = spanOf(file.path, at);
+        info.createSpan({
+          cls: "pixel-calendar-chip-time",
+          text: `${formatHM(s.start)}\u2013${formatHM(s.end)}`
+        });
       }
       if (subs.length > 0) {
         const subWrap = wrap.createDiv({ cls: "pixel-calendar-side-subtasks" });
@@ -847,7 +1293,11 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           const sAt = slotOfRef(sref);
           if (sAt) {
             sChip.addClass("is-scheduled");
-            sInfo.createSpan({ cls: "pixel-calendar-chip-time", text: sAt });
+            const ss = spanOf(sref, sAt);
+            sInfo.createSpan({
+              cls: "pixel-calendar-chip-time",
+              text: `${formatHM(ss.start)}\u2013${formatHM(ss.end)}`
+            });
           }
         }
       }
@@ -866,7 +1316,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         renderSideHabit(file, containerEl);
       const sections = [];
       subfolders.forEach((sub, i) => {
-        const colorIndex = i % FolderRoutinesPlugin.SECTION_COLORS;
+        const colorIndex = i % _FolderRoutinesPlugin.SECTION_COLORS;
         const section = containerEl.createDiv({
           cls: `pixel-calendar-side-section folder-routines-color-${colorIndex + 1}`
         });
@@ -878,7 +1328,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         });
         secHeader.createSpan({
           cls: "folder-routines-collapse-icon",
-          text: "▾"
+          text: "\u25BE"
         });
         secHeader.createSpan({ text: sub.name });
         const body = section.createDiv({ cls: "pixel-calendar-side-body" });
@@ -896,6 +1346,68 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         });
       });
     };
+    const layoutEvents = (layer) => {
+      const items = [];
+      for (const key of Object.keys(plan)) {
+        for (const ref of plan[key])
+          items.push({ ref, span: spanOf(ref, key) });
+      }
+      items.sort(
+        (a, b) => a.span.start - b.span.start || a.span.end - b.span.end
+      );
+      const laneOf = /* @__PURE__ */ new Map();
+      const lanesIn = /* @__PURE__ */ new Map();
+      let group = [];
+      let groupEnd = -1;
+      const flush = () => {
+        if (group.length === 0)
+          return;
+        const laneEnds = [];
+        for (const it of group) {
+          let lane = laneEnds.findIndex((end) => end <= it.span.start);
+          if (lane === -1) {
+            lane = laneEnds.length;
+            laneEnds.push(it.span.end);
+          } else {
+            laneEnds[lane] = it.span.end;
+          }
+          laneOf.set(it.ref, lane);
+        }
+        for (const it of group)
+          lanesIn.set(it.ref, laneEnds.length);
+        group = [];
+        groupEnd = -1;
+      };
+      for (const it of items) {
+        if (group.length > 0 && it.span.start >= groupEnd)
+          flush();
+        group.push(it);
+        groupEnd = Math.max(groupEnd, it.span.end);
+      }
+      flush();
+      for (const it of items) {
+        const chip = renderSlotChip(layer, it.ref, it.span);
+        const lanes = lanesIn.get(it.ref) ?? 1;
+        const lane = laneOf.get(it.ref) ?? 0;
+        const units = (n) => n / SLOT_MINUTES;
+        chip.setAttr("data-start", formatHM(it.span.start));
+        chip.setAttr("data-end", formatHM(it.span.end));
+        chip.style.top = `calc(var(--fr-slot-h) * ${units(it.span.start)})`;
+        chip.style.height = `calc(var(--fr-slot-h) * ${units(
+          it.span.end - it.span.start
+        )} - 3px)`;
+        chip.style.left = `${lane / lanes * 100}%`;
+        chip.style.width = `${100 / lanes}%`;
+        wireDropZone(chip, (ref) => {
+          if (ref === it.ref)
+            return;
+          placeRef(ref, slotKeyForMinutes(it.span.start));
+          delete spans[ref];
+          refresh();
+          persist();
+        });
+      }
+    };
     const rebuildGrid = () => {
       for (const key of slotKeys) {
         const row = gridEl.createDiv({ cls: "pixel-calendar-row" });
@@ -906,14 +1418,25 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           row.addClass("is-now");
         row.createDiv({ cls: "pixel-calendar-time", text: key });
         const zone = row.createDiv({ cls: "pixel-calendar-slot" });
+        zone.setAttr("aria-label", `${key} \u2014 double-click to add a task`);
         wireDropZone(zone, (ref) => {
-          placeRef(ref, key);
+          const duration = durationOf(ref);
+          const start = parseHM(key) ?? 0;
+          setSpan(ref, start, start + duration);
           refresh();
           persist();
         });
-        for (const ref of plan[key] ?? [])
-          renderSlotChip(zone, ref);
+        zone.addEventListener("dblclick", (e) => {
+          const target = e.target;
+          if (target?.closest(".pixel-calendar-chip"))
+            return;
+          if (zone.querySelector(".pixel-calendar-task-input"))
+            return;
+          e.preventDefault();
+          addTaskAt(zone, key);
+        });
       }
+      layoutEvents(gridEl.createDiv({ cls: "pixel-calendar-events" }));
     };
     refresh = () => {
       const prevScroll = gridWrap.scrollTop;
@@ -922,6 +1445,10 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       sideHeader.createSpan({
         cls: "pixel-calendar-side-title",
         text: "Habits"
+      });
+      sideHeader.createSpan({
+        cls: "pixel-calendar-side-hint",
+        text: "Double-click a time to add a task"
       });
       const sideList = sideEl.createDiv({ cls: "pixel-calendar-side-list" });
       if (habitFiles.length === 0) {
@@ -933,7 +1460,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
         renderSideFolder(root, sideList, 0);
       }
       wireDropZone(sideList, (ref) => {
-        removeRefEverywhere(ref);
+        discardRef(ref);
         refresh();
         persist();
       });
@@ -942,6 +1469,14 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       gridWrap.scrollTop = prevScroll;
     };
     refresh();
+    this.registerBlockListener(el, ctx, (ev) => {
+      if (ev.originId === blockId || ev.dateStr !== dateStr)
+        return;
+      if (!subtasksByPath.has(ev.path))
+        return;
+      applyDone(ev.path, ev.subtask, ev.checked, ev.subtasks);
+      refresh();
+    });
     const scrollKey = isToday ? currentSlotKey(now) : "08:00";
     const targetRow = gridEl.querySelector(
       `[data-slot="${scrollKey}"]`
@@ -949,10 +1484,15 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     if (targetRow)
       gridWrap.scrollTop = Math.max(0, targetRow.offsetTop - 8);
   }
+  /* ============================================================
+     Stats board (```routine-stats```)
+     ============================================================ */
   getEntryDates(file) {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
     return new Set(this.normalizeEntries(fm?.[this.settings.entriesProperty]));
   }
+  /* Poll the metadata cache until it reflects the just-written entry state,
+     so a re-render doesn't read stale frontmatter. */
   async waitForEntryState(file, dateStr, expected, tries = 20) {
     for (let i = 0; i < tries; i++) {
       if (this.getEntryDates(file).has(dateStr) === expected)
@@ -961,10 +1501,9 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     }
   }
   collectSectionFiles(folder) {
-    return [...folder.children].filter(
-      (c) => c instanceof import_obsidian.TFile && c.extension === "md"
-    ).sort((a, b) => a.name.localeCompare(b.name));
+    return [...folder.children].filter((c) => c instanceof import_obsidian.TFile && c.extension === "md").sort((a, b) => a.name.localeCompare(b.name));
   }
+  /* Longest run of consecutive true values. */
   bestStreak(flags) {
     let best = 0;
     let run = 0;
@@ -975,6 +1514,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     }
     return best;
   }
+  /* Trailing run of true values ending at the last index (today). */
   currentStreak(flags) {
     let run = 0;
     for (let i = flags.length - 1; i >= 0; i--) {
@@ -1008,7 +1548,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
       return glyphs[idx];
     }).join("");
   }
-  async renderStats(source, el) {
+  async renderStats(source, el, ctx) {
     el.empty();
     const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
     if (!(root instanceof import_obsidian.TFolder)) {
@@ -1023,9 +1563,20 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     toolbar.createSpan({ cls: "routine-stats-toolbar-title", text: "STATS" });
     toolbar.createSpan({ cls: "routine-stats-toolbar-range", text: "21 DAYS" });
     const boards = container.createDiv({ cls: "routine-stats-boards" });
-    this.renderStatsBoards(boards, root, 21);
+    const blockId = this.nextBlockId();
+    this.renderStatsBoards(boards, root, 21, blockId);
+    this.registerBlockListener(el, ctx, (ev) => {
+      if (ev.originId === blockId)
+        return;
+      const file = this.app.vault.getAbstractFileByPath(ev.path);
+      if (!(file instanceof import_obsidian.TFile))
+        return;
+      this.waitForEntryState(file, ev.dateStr, ev.parentChecked).then(() => this.renderStatsBoards(boards, root, 21, blockId)).catch(
+        (e) => console.error("Folder Routines: failed to refresh stats", e)
+      );
+    });
   }
-  renderStatsBoards(host, root, days) {
+  renderStatsBoards(host, root, days, blockId) {
     host.empty();
     const today = (0, import_obsidian.moment)().startOf("day");
     const dateStrs = [];
@@ -1039,9 +1590,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     const rootFiles = this.collectSectionFiles(root);
     if (rootFiles.length)
       sections.push({ name: root.name, files: rootFiles });
-    const subfolders = [...root.children].filter(
-      (c) => c instanceof import_obsidian.TFolder
-    ).sort((a, b) => a.name.localeCompare(b.name));
+    const subfolders = [...root.children].filter((c) => c instanceof import_obsidian.TFolder).sort((a, b) => a.name.localeCompare(b.name));
     for (const sub of subfolders) {
       const files = this.collectSectionFiles(sub);
       if (files.length)
@@ -1056,7 +1605,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     }
     const weekdays = ["S", "M", "T", "W", "T", "F", "S"];
     sections.forEach((section, sectionIndex) => {
-      const colorIndex = sectionIndex % FolderRoutinesPlugin.SECTION_COLORS;
+      const colorIndex = sectionIndex % _FolderRoutinesPlugin.SECTION_COLORS;
       const board = host.createDiv({
         cls: `folder-routines-section routine-stats-board folder-routines-color-${colorIndex + 1}`
       });
@@ -1129,7 +1678,9 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           dayCols.push("0.4rem");
         dayCols.push("1.15rem");
       }
-      grid.style.gridTemplateColumns = `max-content ${dayCols.join(" ")} auto`;
+      grid.style.gridTemplateColumns = `max-content ${dayCols.join(
+        " "
+      )} auto`;
       grid.createDiv({ cls: "routine-stats-cell routine-stats-corner" });
       dateStrs.forEach((ds, di) => {
         if (di % 7 === 0 && di !== 0)
@@ -1161,7 +1712,7 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
           if (di === days - 1)
             cell.addClass("is-today-col");
           const ds = dateStrs[di];
-          cell.setAttr("aria-label", `${row.file.basename} \u00B7 ${ds}`);
+          cell.setAttr("aria-label", `${row.file.basename} \xB7 ${ds}`);
           cell.setAttr("role", "button");
           cell.tabIndex = 0;
           const toggle = async () => {
@@ -1178,8 +1729,17 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
               } else {
                 await this.setEntry(row.file, ds, target);
               }
+              this.emitRoutineChange({
+                dateStr: ds,
+                path: row.file.path,
+                subtask: null,
+                checked: target,
+                parentChecked: target,
+                subtasks,
+                originId: blockId
+              });
               await this.waitForEntryState(row.file, ds, target);
-              this.renderStatsBoards(host, root, days);
+              this.renderStatsBoards(host, root, days, blockId);
             } catch (e) {
               console.error("Folder Routines: failed to update entry", e);
               new import_obsidian.Notice(`Folder Routines: failed to update ${row.file.basename}`);
@@ -1305,8 +1865,9 @@ var FolderRoutinesPlugin = class extends import_obsidian.Plugin {
     });
   }
 };
-FolderRoutinesPlugin.PROGRESS_BLOCKS = 10;
-FolderRoutinesPlugin.SECTION_COLORS = 4;
+_FolderRoutinesPlugin.PROGRESS_BLOCKS = 10;
+_FolderRoutinesPlugin.SECTION_COLORS = 4;
+var FolderRoutinesPlugin = _FolderRoutinesPlugin;
 var FolderRoutinesSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -1345,9 +1906,27 @@ var FolderRoutinesSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian.Setting(containerEl).setName("Pixel calendar property").setDesc("Frontmatter property in the daily note where the pixel calendar plan is stored.").addText(
+    new import_obsidian.Setting(containerEl).setName("Pixel calendar property").setDesc(
+      "Frontmatter property on the daily note where the pixel-calendar day plan is stored."
+    ).addText(
       (text) => text.setPlaceholder("pixelCalendarPlan").setValue(this.plugin.settings.pixelCalendarProperty).onChange(async (value) => {
         this.plugin.settings.pixelCalendarProperty = value.trim() || "pixelCalendarPlan";
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Pixel calendar tasks property").setDesc(
+      "Frontmatter property in the daily note where one-off calendar tasks are stored."
+    ).addText(
+      (text) => text.setPlaceholder("pixelCalendarTasks").setValue(this.plugin.settings.pixelCalendarTasksProperty).onChange(async (value) => {
+        this.plugin.settings.pixelCalendarTasksProperty = value.trim() || "pixelCalendarTasks";
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Pixel calendar times property").setDesc(
+      "Frontmatter property in the daily note where custom start/finish times are stored."
+    ).addText(
+      (text) => text.setPlaceholder("pixelCalendarTimes").setValue(this.plugin.settings.pixelCalendarTimesProperty).onChange(async (value) => {
+        this.plugin.settings.pixelCalendarTimesProperty = value.trim() || "pixelCalendarTimes";
         await this.plugin.saveSettings();
       })
     );

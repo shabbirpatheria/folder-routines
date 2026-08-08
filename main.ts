@@ -6,6 +6,7 @@ import {
   TFile,
   TFolder,
   MarkdownPostProcessorContext,
+  MarkdownRenderChild,
   Notice,
   Editor,
   MarkdownView,
@@ -19,6 +20,8 @@ interface FolderRoutinesSettings {
   subtasksProperty: string;
   subtaskEntriesProperty: string;
   pixelCalendarProperty: string;
+  pixelCalendarTasksProperty: string;
+  pixelCalendarTimesProperty: string;
 }
 
 const DEFAULT_SETTINGS: FolderRoutinesSettings = {
@@ -28,12 +31,87 @@ const DEFAULT_SETTINGS: FolderRoutinesSettings = {
   subtasksProperty: "subtasks",
   subtaskEntriesProperty: "subtaskEntries",
   pixelCalendarProperty: "pixelCalendarPlan",
+  pixelCalendarTasksProperty: "pixelCalendarTasks",
+  pixelCalendarTimesProperty: "pixelCalendarTimes",
 };
 
 const SLOT_MINUTES = 30;
+const MIN_DURATION = 15;
+const DAY_MINUTES = 24 * 60;
 const SUBTASK_SEP = "::";
 
+/* One-off tasks live in the plan under a prefix that can never collide with a
+   vault path (":" is not a legal filename character on Windows/macOS). */
+const CUSTOM_REF_PREFIX = "custom:";
+
 type PlanMap = Record<string, string[]>;
+
+interface CustomTask {
+  title: string;
+  done: boolean;
+}
+
+type CustomTaskMap = Record<string, CustomTask>;
+
+/* Explicit start/finish for a scheduled ref, in minutes from midnight.
+   Absent means "the 30-minute slot it sits in". */
+interface TimeSpan {
+  start: number;
+  end: number;
+}
+
+type TimeSpanMap = Record<string, TimeSpan>;
+
+function clampMinute(v: number): number {
+  return Math.max(0, Math.min(DAY_MINUTES, Math.round(v)));
+}
+
+function formatHM(min: number): string {
+  const m = clampMinute(min);
+  const h = Math.floor(m / 60);
+  return (
+    String(h === 24 ? 24 : h).padStart(2, "0") +
+    ":" +
+    String(m % 60).padStart(2, "0")
+  );
+}
+
+function parseHM(text: unknown): number | null {
+  const s = String(text ?? "").trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(mm) || mm > 59 || h > 24) return null;
+  return clampMinute(h * 60 + mm);
+}
+
+function slotKeyForMinutes(min: number): string {
+  const snapped =
+    Math.floor(Math.min(min, DAY_MINUTES - SLOT_MINUTES) / SLOT_MINUTES) *
+    SLOT_MINUTES;
+  return formatHM(Math.max(0, snapped));
+}
+
+/* Per-block registry of "apply this completion state to my UI" callbacks,
+   keyed by ref (note path, or path::subtask). */
+interface BlockSync {
+  id: string;
+  setters: Map<string, (checked: boolean) => void>;
+}
+
+/* Broadcast whenever a habit completion is written, so every rendered block
+   (checklist, calendar, stats) on any open note stays in sync without a
+   re-render of the whole page. */
+interface RoutineChangeEvent {
+  dateStr: string;
+  path: string;
+  subtask: string | null;
+  checked: boolean;
+  parentChecked: boolean;
+  subtasks: string[];
+  originId: string;
+}
 
 function makeRef(path: string, subtask?: string | null): string {
   return subtask != null && subtask !== "" ? path + SUBTASK_SEP + subtask : path;
@@ -43,6 +121,24 @@ function parseRef(ref: string): { path: string; subtask: string | null } {
   const idx = ref.indexOf(SUBTASK_SEP);
   if (idx === -1) return { path: ref, subtask: null };
   return { path: ref.slice(0, idx), subtask: ref.slice(idx + SUBTASK_SEP.length) };
+}
+
+function isCustomRef(ref: string): boolean {
+  return ref.startsWith(CUSTOM_REF_PREFIX);
+}
+
+function makeCustomRef(id: string): string {
+  return CUSTOM_REF_PREFIX + id;
+}
+
+function customRefId(ref: string): string {
+  return ref.slice(CUSTOM_REF_PREFIX.length);
+}
+
+function newCustomTaskId(): string {
+  return (
+    Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6)
+  );
 }
 
 function buildSlotKeys(): string[] {
@@ -87,7 +183,7 @@ export default class FolderRoutinesPlugin extends Plugin {
 
     this.registerMarkdownCodeBlockProcessor(
       "routine-stats",
-      (source, el) => this.renderStats(source, el)
+      (source, el, ctx) => this.renderStats(source, el, ctx)
     );
 
     this.registerMarkdownCodeBlockProcessor(
@@ -128,6 +224,41 @@ export default class FolderRoutinesPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  /* ============================================================
+     Live sync between blocks
+     ============================================================ */
+
+  private changeListeners = new Set<(e: RoutineChangeEvent) => void>();
+  private blockSeq = 0;
+
+  private nextBlockId(): string {
+    this.blockSeq += 1;
+    return `fr-block-${this.blockSeq}`;
+  }
+
+  /* Register a listener bound to a rendered code block: it is dropped as soon
+     as Obsidian unloads that block's element. */
+  private registerBlockListener(
+    el: HTMLElement,
+    ctx: MarkdownPostProcessorContext,
+    listener: (e: RoutineChangeEvent) => void
+  ) {
+    this.changeListeners.add(listener);
+    const child = new MarkdownRenderChild(el);
+    child.register(() => this.changeListeners.delete(listener));
+    ctx.addChild(child);
+  }
+
+  private emitRoutineChange(e: RoutineChangeEvent) {
+    for (const listener of [...this.changeListeners]) {
+      try {
+        listener(e);
+      } catch (err) {
+        console.error("Folder Routines: sync listener failed", err);
+      }
+    }
   }
 
   private normalizeEntries(val: unknown): string[] {
@@ -228,9 +359,10 @@ export default class FolderRoutinesPlugin extends Plugin {
     dateStr: string,
     checked: boolean,
     allSubtasks: string[]
-  ) {
+  ): Promise<boolean> {
     const entriesProp = this.settings.entriesProperty;
     const subProp = this.settings.subtaskEntriesProperty;
+    let parentChecked = false;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
       const map = this.normalizeSubtaskEntries(fm[subProp]);
       let dates = map[name] ?? [];
@@ -243,6 +375,7 @@ export default class FolderRoutinesPlugin extends Plugin {
       map[name] = dates;
 
       const allDone = allSubtasks.every((s) => (map[s] ?? []).includes(dateStr));
+      parentChecked = allDone;
       let entries = this.normalizeEntries(fm[entriesProp]);
       if (allDone) {
         if (!entries.includes(dateStr)) entries.push(dateStr);
@@ -258,6 +391,7 @@ export default class FolderRoutinesPlugin extends Plugin {
         fm[subProp] = map;
       }
     });
+    return parentChecked;
   }
 
   private async setParentToggleAll(
@@ -332,8 +466,14 @@ export default class FolderRoutinesPlugin extends Plugin {
     this.createProgress(header);
 
     const body = section.createDiv({ cls: "folder-routines-body" });
-    await this.renderFolder(root, body, dateStr, 3);
+    const sync: BlockSync = { id: this.nextBlockId(), setters: new Map() };
+    await this.renderFolder(root, body, dateStr, 3, sync);
     this.updateSectionProgress(section);
+
+    this.registerBlockListener(el, ctx, (ev) => {
+      if (ev.originId === sync.id || ev.dateStr !== dateStr) return;
+      sync.setters.get(makeRef(ev.path, ev.subtask))?.(ev.checked);
+    });
 
     header.addEventListener("click", () => {
       section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
@@ -344,7 +484,8 @@ export default class FolderRoutinesPlugin extends Plugin {
     folder: TFolder,
     container: HTMLElement,
     dateStr: string,
-    depth: number
+    depth: number,
+    sync: BlockSync
   ) {
     const children = [...folder.children].sort((a, b) =>
       a.name.localeCompare(b.name)
@@ -359,7 +500,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     let index = 0;
     for (const file of files) {
       index++;
-      await this.renderItem(file, container, dateStr, index);
+      await this.renderItem(file, container, dateStr, index, sync);
     }
 
     for (let sectionIndex = 0; sectionIndex < subfolders.length; sectionIndex++) {
@@ -375,7 +516,7 @@ export default class FolderRoutinesPlugin extends Plugin {
       this.createProgress(header);
 
       const body = section.createDiv({ cls: "folder-routines-body" });
-      await this.renderFolder(sub, body, dateStr, depth + 1);
+      await this.renderFolder(sub, body, dateStr, depth + 1, sync);
       this.updateSectionProgress(section);
 
       header.addEventListener("click", () => {
@@ -480,7 +621,8 @@ export default class FolderRoutinesPlugin extends Plugin {
     file: TFile,
     container: HTMLElement,
     dateStr: string,
-    index = 0
+    index = 0,
+    sync?: BlockSync
   ) {
     const subtasks = this.getSubtasks(file);
     const itemEl = container.createDiv({ cls: "folder-routines-item" });
@@ -504,6 +646,13 @@ export default class FolderRoutinesPlugin extends Plugin {
       checkbox.checked = this.isChecked(file, dateStr);
       itemEl.toggleClass("is-checked", checkbox.checked);
 
+      sync?.setters.set(file.path, (checked) => {
+        if (checkbox.checked === checked) return;
+        checkbox.checked = checked;
+        itemEl.toggleClass("is-checked", checked);
+        this.updateAncestorProgress(itemEl);
+      });
+
       checkbox.addEventListener("change", async () => {
         const target = checkbox.checked;
         checkbox.disabled = true;
@@ -511,6 +660,15 @@ export default class FolderRoutinesPlugin extends Plugin {
           await this.setEntry(file, dateStr, target);
           itemEl.toggleClass("is-checked", target);
           if (target) this.showXpPopup(itemEl);
+          this.emitRoutineChange({
+            dateStr,
+            path: file.path,
+            subtask: null,
+            checked: target,
+            parentChecked: target,
+            subtasks: [],
+            originId: sync?.id ?? "",
+          });
         } catch (e) {
           console.error("Folder Routines: failed to update frontmatter", e);
           new Notice(`Folder Routines: failed to update ${file.basename}`);
@@ -557,14 +715,37 @@ export default class FolderRoutinesPlugin extends Plugin {
       subItem.toggleClass("is-checked", subCheckbox.checked);
       subEls.push({ name, el: subItem, checkbox: subCheckbox });
 
+      sync?.setters.set(makeRef(file.path, name), (checked) => {
+        if (subCheckbox.checked === checked) return;
+        subCheckbox.checked = checked;
+        subItem.toggleClass("is-checked", checked);
+        refreshParent();
+        this.updateAncestorProgress(subItem);
+      });
+
       subCheckbox.addEventListener("change", async () => {
         const target = subCheckbox.checked;
         setAllDisabled(true);
         try {
-          await this.setSubtaskEntry(file, name, dateStr, target, subtasks);
+          const parentChecked = await this.setSubtaskEntry(
+            file,
+            name,
+            dateStr,
+            target,
+            subtasks
+          );
           subItem.toggleClass("is-checked", target);
           if (target) this.showXpPopup(subItem);
           refreshParent();
+          this.emitRoutineChange({
+            dateStr,
+            path: file.path,
+            subtask: name,
+            checked: target,
+            parentChecked,
+            subtasks,
+            originId: sync?.id ?? "",
+          });
         } catch (e) {
           console.error("Folder Routines: failed to update frontmatter", e);
           new Notice(`Folder Routines: failed to update ${file.basename}`);
@@ -578,6 +759,16 @@ export default class FolderRoutinesPlugin extends Plugin {
 
     refreshParent();
 
+    sync?.setters.set(file.path, (checked) => {
+      checkbox.checked = checked;
+      itemEl.toggleClass("is-checked", checked);
+      for (const s of subEls) {
+        s.checkbox.checked = checked;
+        s.el.toggleClass("is-checked", checked);
+      }
+      this.updateAncestorProgress(itemEl);
+    });
+
     checkbox.addEventListener("change", async () => {
       const target = checkbox.checked;
       setAllDisabled(true);
@@ -588,6 +779,15 @@ export default class FolderRoutinesPlugin extends Plugin {
           s.checkbox.checked = target;
           s.el.toggleClass("is-checked", target);
         }
+        this.emitRoutineChange({
+          dateStr,
+          path: file.path,
+          subtask: null,
+          checked: target,
+          parentChecked: target,
+          subtasks,
+          originId: sync?.id ?? "",
+        });
       } catch (e) {
         console.error("Folder Routines: failed to update frontmatter", e);
         new Notice(`Folder Routines: failed to update ${file.basename}`);
@@ -615,19 +815,93 @@ export default class FolderRoutinesPlugin extends Plugin {
     return out;
   }
 
-  private async savePlan(file: TFile, plan: PlanMap) {
-    const prop = this.settings.pixelCalendarProperty;
+  private async savePlanState(
+    file: TFile,
+    plan: PlanMap,
+    tasks: CustomTaskMap,
+    spans: TimeSpanMap
+  ) {
+    const planProp = this.settings.pixelCalendarProperty;
+    const taskProp = this.settings.pixelCalendarTasksProperty;
+    const timeProp = this.settings.pixelCalendarTimesProperty;
+    const scheduled = new Set<string>();
     await this.app.fileManager.processFrontMatter(file, (fm) => {
-      const clean: PlanMap = {};
+      const cleanPlan: PlanMap = {};
       for (const [k, v] of Object.entries(plan)) {
-        if (Array.isArray(v) && v.length > 0) clean[k] = [...v];
+        if (Array.isArray(v) && v.length > 0) {
+          cleanPlan[k] = [...v];
+          for (const ref of v) scheduled.add(ref);
+        }
       }
-      if (Object.keys(clean).length === 0) {
-        delete fm[prop];
+      if (Object.keys(cleanPlan).length === 0) {
+        delete fm[planProp];
       } else {
-        fm[prop] = clean;
+        fm[planProp] = cleanPlan;
+      }
+
+      const cleanTasks: CustomTaskMap = {};
+      for (const [id, task] of Object.entries(tasks)) {
+        if (task && task.title.trim().length > 0) {
+          cleanTasks[id] = { title: task.title, done: task.done === true };
+        }
+      }
+      if (Object.keys(cleanTasks).length === 0) {
+        delete fm[taskProp];
+      } else {
+        fm[taskProp] = cleanTasks;
+      }
+
+      // Only persist spans that differ from the default single slot.
+      const cleanSpans: Record<string, { start: string; end: string }> = {};
+      for (const [ref, span] of Object.entries(spans)) {
+        if (!scheduled.has(ref) || !span) continue;
+        const isDefault =
+          span.start % SLOT_MINUTES === 0 &&
+          span.end - span.start === SLOT_MINUTES;
+        if (isDefault) continue;
+        cleanSpans[ref] = { start: formatHM(span.start), end: formatHM(span.end) };
+      }
+      if (Object.keys(cleanSpans).length === 0) {
+        delete fm[timeProp];
+      } else {
+        fm[timeProp] = cleanSpans;
       }
     });
+  }
+
+  private loadTimeSpans(file: TFile): TimeSpanMap {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const raw = fm?.[this.settings.pixelCalendarTimesProperty];
+    const out: TimeSpanMap = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+    for (const [ref, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const obj = value as Record<string, unknown>;
+      const start = parseHM(obj.start);
+      const end = parseHM(obj.end);
+      if (start == null || end == null) continue;
+      out[ref] = { start, end: Math.max(end, start + MIN_DURATION) };
+    }
+    return out;
+  }
+
+  /* One-off tasks for a single day, stored alongside the plan on the daily
+     note so they never touch the routine folder. */
+  private loadCustomTasks(file: TFile): CustomTaskMap {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const raw = fm?.[this.settings.pixelCalendarTasksProperty];
+    const out: CustomTaskMap = {};
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+    for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value === "string") {
+        if (value.trim()) out[id] = { title: value, done: false };
+      } else if (value && typeof value === "object" && !Array.isArray(value)) {
+        const obj = value as Record<string, unknown>;
+        const title = obj.title == null ? "" : String(obj.title);
+        if (title.trim()) out[id] = { title, done: obj.done === true };
+      }
+    }
+    return out;
   }
 
   private collectHabitFiles(folder: TFolder, out: TFile[]) {
@@ -675,6 +949,9 @@ export default class FolderRoutinesPlugin extends Plugin {
 
     const dateStr = date.format(this.settings.storeDateFormat || "YYYY-MM-DD");
     const plan = this.loadPlan(noteFile);
+    const customTasks = this.loadCustomTasks(noteFile);
+    const spans = this.loadTimeSpans(noteFile);
+    const blockId = this.nextBlockId();
 
     const habitFiles: TFile[] = [];
     this.collectHabitFiles(root, habitFiles);
@@ -698,8 +975,10 @@ export default class FolderRoutinesPlugin extends Plugin {
     };
     assignColors(root, 0);
     const applyColor = (elm: HTMLElement, path: string) => {
-      const c = colorByPath.get(path);
-      if (c) elm.addClass(`folder-routines-color-${c}`);
+      // Fall back to the checklist's default section color for root-level
+      // habits so a chip is never left on the reserved selection accent.
+      const c = colorByPath.get(path) ?? 1;
+      elm.addClass(`folder-routines-color-${c}`);
     };
 
     // Build completion state for this date, reconciling subtasks up front.
@@ -750,26 +1029,61 @@ export default class FolderRoutinesPlugin extends Plugin {
       }
     };
 
+    /* Unscheduling a one-off task deletes it: it exists only on the calendar. */
+    const discardRef = (ref: string) => {
+      removeRefEverywhere(ref);
+      delete spans[ref];
+      if (isCustomRef(ref)) delete customTasks[customRefId(ref)];
+    };
+
     const placeRef = (ref: string, slotKey: string) => {
       removeRefEverywhere(ref);
       if (!plan[slotKey]) plan[slotKey] = [];
       if (!plan[slotKey].includes(ref)) plan[slotKey].push(ref);
     };
 
-    const persist = () => {
-      this.savePlan(noteFile, plan).catch((e) => {
-        console.error("Folder Routines: failed to save pixel calendar plan", e);
-        new Notice("Folder Routines: failed to save calendar plan");
-      });
+    /* Effective start/finish of a scheduled ref: an explicit span when the
+       user set one, otherwise the 30-minute slot it was dropped in. */
+    const spanOf = (ref: string, slotKey: string): TimeSpan => {
+      const explicit = spans[ref];
+      if (explicit) return explicit;
+      const start = parseHM(slotKey) ?? 0;
+      return { start, end: start + SLOT_MINUTES };
     };
 
-    const setRefDone = async (ref: string, target: boolean) => {
-      const { path, subtask } = parseRef(ref);
-      const file = fileForPath(path);
-      if (!file) return;
-      const subs = subtasksByPath.get(path) ?? [];
+    const durationOf = (ref: string): number => {
+      const slotKey = slotOfRef(ref);
+      if (!slotKey) return SLOT_MINUTES;
+      const s = spanOf(ref, slotKey);
+      return s.end - s.start;
+    };
+
+    /* Move/resize: keeps the plan slot in sync with the precise start time. */
+    const setSpan = (ref: string, startMin: number, endMin: number) => {
+      const start = clampMinute(Math.min(startMin, DAY_MINUTES - MIN_DURATION));
+      const end = clampMinute(Math.max(endMin, start + MIN_DURATION));
+      spans[ref] = { start, end };
+      placeRef(ref, slotKeyForMinutes(start));
+    };
+
+    let saveChain: Promise<void> = Promise.resolve();
+    const persist = () => {
+      saveChain = saveChain
+        .then(() => this.savePlanState(noteFile, plan, customTasks, spans))
+        .catch((e) => {
+          console.error("Folder Routines: failed to save pixel calendar plan", e);
+          new Notice("Folder Routines: failed to save calendar plan");
+        });
+    };
+
+    const applyDone = (
+      path: string,
+      subtask: string | null,
+      target: boolean,
+      subs: string[]
+    ) => {
       if (subtask != null) {
-        await this.setSubtaskEntry(file, subtask, dateStr, target, subs);
+        const ref = makeRef(path, subtask);
         if (target) done.add(ref);
         else done.delete(ref);
         const allDone =
@@ -777,7 +1091,6 @@ export default class FolderRoutinesPlugin extends Plugin {
         if (allDone) done.add(path);
         else done.delete(path);
       } else if (subs.length > 0) {
-        await this.setParentToggleAll(file, dateStr, target, subs);
         if (target) {
           done.add(path);
           for (const s of subs) done.add(makeRef(path, s));
@@ -786,13 +1099,54 @@ export default class FolderRoutinesPlugin extends Plugin {
           for (const s of subs) done.delete(makeRef(path, s));
         }
       } else {
-        await this.setEntry(file, dateStr, target);
         if (target) done.add(path);
         else done.delete(path);
       }
     };
 
+    const setRefDone = async (ref: string, target: boolean) => {
+      if (isCustomRef(ref)) {
+        const task = customTasks[customRefId(ref)];
+        if (!task) return;
+        task.done = target;
+        persist();
+        return;
+      }
+      const { path, subtask } = parseRef(ref);
+      const file = fileForPath(path);
+      if (!file) return;
+      const subs = subtasksByPath.get(path) ?? [];
+      let parentChecked = target;
+      if (subtask != null) {
+        parentChecked = await this.setSubtaskEntry(
+          file,
+          subtask,
+          dateStr,
+          target,
+          subs
+        );
+      } else if (subs.length > 0) {
+        await this.setParentToggleAll(file, dateStr, target, subs);
+      } else {
+        await this.setEntry(file, dateStr, target);
+      }
+      applyDone(path, subtask, target, subs);
+      this.emitRoutineChange({
+        dateStr,
+        path,
+        subtask,
+        checked: target,
+        parentChecked,
+        subtasks: subs,
+        originId: blockId,
+      });
+    };
+
     const refLabel = (ref: string): { text: string; parent: string | null } => {
+      if (isCustomRef(ref)) {
+        const task = customTasks[customRefId(ref)];
+        return { text: task ? task.title : "Missing task", parent: "TASK" };
+      }
       const { path, subtask } = parseRef(ref);
       const file = fileForPath(path);
       const base = file
@@ -854,13 +1208,23 @@ export default class FolderRoutinesPlugin extends Plugin {
     let refresh: () => void = () => {};
     let openSideSection: string | null = null;
 
-    const addChipCheckbox = (chip: HTMLElement, ref: string): HTMLInputElement => {
-      const checkbox = chip.createEl("input", {
+    const isRefDone = (ref: string): boolean => {
+      if (isCustomRef(ref)) return customTasks[customRefId(ref)]?.done === true;
+      return done.has(ref);
+    };
+
+    const addChipCheckbox = (
+      host: HTMLElement,
+      ref: string,
+      chip: HTMLElement = host
+    ): HTMLInputElement => {
+      const checkbox = host.createEl("input", {
         type: "checkbox",
       }) as HTMLInputElement;
-      checkbox.checked = done.has(ref);
+      checkbox.checked = isRefDone(ref);
       if (checkbox.checked) chip.addClass("is-done");
       checkbox.addEventListener("click", (e) => e.stopPropagation());
+      checkbox.addEventListener("dblclick", (e) => e.stopPropagation());
       checkbox.addEventListener("change", async () => {
         const target = checkbox.checked;
         checkbox.disabled = true;
@@ -877,14 +1241,198 @@ export default class FolderRoutinesPlugin extends Plugin {
       return checkbox;
     };
 
-    const renderSlotChip = (zone: HTMLElement, ref: string) => {
-      const { subtask } = parseRef(ref);
-      const file = fileForPath(parseRef(ref).path);
-      const chip = zone.createDiv({
-        cls: "pixel-calendar-chip pixel-calendar-slot-chip",
+    /* Inline pixel-styled text field used to create or rename a one-off task. */
+    const openTaskInput = (
+      host: HTMLElement,
+      initial: string,
+      onCommit: (title: string) => void
+    ) => {
+      const wrap = host.createDiv({ cls: "pixel-calendar-task-input" });
+      const input = wrap.createEl("input", { type: "text" }) as HTMLInputElement;
+      input.value = initial;
+      input.placeholder = "Task name…";
+      input.setAttr("aria-label", "Task name");
+      let closed = false;
+      const finish = (commit: boolean) => {
+        if (closed) return;
+        closed = true;
+        const value = input.value.trim();
+        if (commit && value) onCommit(value);
+        else refresh();
+      };
+      input.addEventListener("keydown", (e: KeyboardEvent) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          finish(true);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          finish(false);
+        }
+      });
+      input.addEventListener("blur", () => finish(true));
+      input.addEventListener("click", (e) => e.stopPropagation());
+      input.addEventListener("dblclick", (e) => e.stopPropagation());
+      window.setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 0);
+    };
+
+    const addTaskAt = (zone: HTMLElement, slotKey: string) => {
+      openTaskInput(zone, "", (title) => {
+        const id = newCustomTaskId();
+        customTasks[id] = { title, done: false };
+        placeRef(makeCustomRef(id), slotKey);
+        refresh();
+        persist();
+      });
+    };
+
+    /* ---- stretching & exact times ---- */
+
+    const rowHeightPx = (): number => {
+      const row = gridEl.querySelector(
+        ".pixel-calendar-row"
+      ) as HTMLElement | null;
+      const h = row?.getBoundingClientRect().height ?? 0;
+      return h > 0 ? h : 0;
+    };
+
+    const snap = (mins: number) =>
+      Math.round(mins / MIN_DURATION) * MIN_DURATION;
+
+    /* Bottom drag handle: stretch the event over more time. */
+    const decorateEvent = (
+      chip: HTMLElement,
+      ref: string,
+      span: TimeSpan
+    ) => {
+      const handle = chip.createDiv({ cls: "pixel-calendar-event-handle" });
+      handle.setAttr("aria-label", "Drag to change duration");
+      handle.setAttr("title", "Drag to stretch");
+      handle.addEventListener("click", (e) => e.stopPropagation());
+      handle.addEventListener("dblclick", (e) => e.stopPropagation());
+      handle.addEventListener("pointerdown", (e: PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const rowH = rowHeightPx();
+        if (!rowH) return;
+        const startY = e.clientY;
+        const startEnd = span.end;
+        let endMin = startEnd;
+        chip.addClass("is-resizing");
+        chip.setAttr("draggable", "false");
+        try {
+          handle.setPointerCapture(e.pointerId);
+        } catch (err) {
+          /* not supported */
+        }
+        const onMove = (ev: PointerEvent) => {
+          const deltaMin = ((ev.clientY - startY) / rowH) * SLOT_MINUTES;
+          endMin = clampMinute(
+            Math.max(span.start + MIN_DURATION, snap(startEnd + deltaMin))
+          );
+          chip.style.height = `calc(var(--fr-slot-h) * ${
+            (endMin - span.start) / SLOT_MINUTES
+          } - 3px)`;
+        };
+        const onUp = () => {
+          handle.removeEventListener("pointermove", onMove);
+          handle.removeEventListener("pointerup", onUp);
+          handle.removeEventListener("pointercancel", onUp);
+          chip.removeClass("is-resizing");
+          if (endMin !== startEnd) {
+            setSpan(ref, span.start, endMin);
+            persist();
+          }
+          refresh();
+        };
+        handle.addEventListener("pointermove", onMove);
+        handle.addEventListener("pointerup", onUp);
+        handle.addEventListener("pointercancel", onUp);
+      });
+    };
+
+    const renderCustomChip = (
+      host: HTMLElement,
+      ref: string,
+      span: TimeSpan
+    ): HTMLElement => {
+      const id = customRefId(ref);
+      const task = customTasks[id];
+      const chip = host.createDiv({
+        cls: "pixel-calendar-chip pixel-calendar-slot-chip pixel-calendar-event is-custom",
       });
       makeDraggable(chip, ref);
-      applyColor(chip, parseRef(ref).path);
+
+      if (!task) {
+        chip.addClass("is-missing");
+        chip.createSpan({
+          cls: "pixel-calendar-chip-text",
+          text: "Missing task",
+        });
+      } else {
+        const head = chip.createDiv({ cls: "pixel-calendar-event-head" });
+        addChipCheckbox(head, ref, chip);
+        const info = head.createDiv({ cls: "pixel-calendar-chip-info" });
+        const title = info.createSpan({
+          cls: "pixel-calendar-chip-text",
+          text: task.title,
+        });
+        info.createSpan({ cls: "pixel-calendar-chip-parent", text: "TASK" });
+        title.setAttr("title", "Double-click to rename");
+        const startRename = (e: MouseEvent) => {
+          const target = e.target as HTMLElement | null;
+          if (
+            target?.closest(
+              ".pixel-calendar-event-handle, .pixel-calendar-chip-remove"
+            )
+          )
+            return;
+          e.preventDefault();
+          e.stopPropagation();
+          chip.empty();
+          chip.addClass("is-editing");
+          chip.setAttr("draggable", "false");
+          openTaskInput(chip, task.title, (newTitle) => {
+            task.title = newTitle;
+            refresh();
+            persist();
+          });
+        };
+        chip.addEventListener("dblclick", startRename);
+        const remove = head.createEl("button", {
+          cls: "pixel-calendar-chip-remove",
+          text: "×",
+        });
+        remove.setAttr("aria-label", "Delete task");
+        remove.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          discardRef(ref);
+          refresh();
+          persist();
+        });
+        decorateEvent(chip, ref, span);
+      }
+      return chip;
+    };
+
+    const renderSlotChip = (
+      host: HTMLElement,
+      ref: string,
+      span: TimeSpan
+    ): HTMLElement => {
+      if (isCustomRef(ref)) return renderCustomChip(host, ref, span);
+
+      const { subtask, path } = parseRef(ref);
+      const file = fileForPath(path);
+      const chip = host.createDiv({
+        cls: "pixel-calendar-chip pixel-calendar-slot-chip pixel-calendar-event",
+      });
+      makeDraggable(chip, ref);
+      applyColor(chip, path);
       if (subtask != null) chip.addClass("is-subtask");
 
       if (!file) {
@@ -893,19 +1441,21 @@ export default class FolderRoutinesPlugin extends Plugin {
           cls: "pixel-calendar-chip-text",
           text: refLabel(ref).text,
         });
-      } else {
-        addChipCheckbox(chip, ref);
-        const info = chip.createDiv({ cls: "pixel-calendar-chip-info" });
-        const lbl = refLabel(ref);
-        info.createSpan({ cls: "pixel-calendar-chip-text", text: lbl.text });
-        if (lbl.parent)
-          info.createSpan({
-            cls: "pixel-calendar-chip-parent",
-            text: lbl.parent,
-          });
+        return chip;
       }
 
-      const remove = chip.createEl("button", {
+      const head = chip.createDiv({ cls: "pixel-calendar-event-head" });
+      addChipCheckbox(head, ref, chip);
+      const info = head.createDiv({ cls: "pixel-calendar-chip-info" });
+      const lbl = refLabel(ref);
+      info.createSpan({ cls: "pixel-calendar-chip-text", text: lbl.text });
+      if (lbl.parent)
+        info.createSpan({
+          cls: "pixel-calendar-chip-parent",
+          text: lbl.parent,
+        });
+
+      const remove = head.createEl("button", {
         cls: "pixel-calendar-chip-remove",
         text: "×",
       });
@@ -913,10 +1463,13 @@ export default class FolderRoutinesPlugin extends Plugin {
       remove.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        removeRefEverywhere(ref);
+        discardRef(ref);
         refresh();
         persist();
       });
+
+      decorateEvent(chip, ref, span);
+      return chip;
     };
 
     const renderSideHabit = (file: TFile, containerEl: HTMLElement) => {
@@ -934,7 +1487,11 @@ export default class FolderRoutinesPlugin extends Plugin {
       const at = slotOfRef(file.path);
       if (at) {
         chip.addClass("is-scheduled");
-        info.createSpan({ cls: "pixel-calendar-chip-time", text: at });
+        const s = spanOf(file.path, at);
+        info.createSpan({
+          cls: "pixel-calendar-chip-time",
+          text: `${formatHM(s.start)}–${formatHM(s.end)}`,
+        });
       }
 
       if (subs.length > 0) {
@@ -952,7 +1509,11 @@ export default class FolderRoutinesPlugin extends Plugin {
           const sAt = slotOfRef(sref);
           if (sAt) {
             sChip.addClass("is-scheduled");
-            sInfo.createSpan({ cls: "pixel-calendar-chip-time", text: sAt });
+            const ss = spanOf(sref, sAt);
+            sInfo.createSpan({
+              cls: "pixel-calendar-chip-time",
+              text: `${formatHM(ss.start)}–${formatHM(ss.end)}`,
+            });
           }
         }
       }
@@ -1006,6 +1567,70 @@ export default class FolderRoutinesPlugin extends Plugin {
       });
     };
 
+    /* Scheduled events float above the slot rows so one can span many rows.
+       Overlapping events are packed into side-by-side lanes. */
+    const layoutEvents = (layer: HTMLElement) => {
+      const items: { ref: string; span: TimeSpan }[] = [];
+      for (const key of Object.keys(plan)) {
+        for (const ref of plan[key]) items.push({ ref, span: spanOf(ref, key) });
+      }
+      items.sort(
+        (a, b) => a.span.start - b.span.start || a.span.end - b.span.end
+      );
+
+      // group items that overlap in time, then assign a lane inside the group
+      const laneOf = new Map<string, number>();
+      const lanesIn = new Map<string, number>();
+      let group: typeof items = [];
+      let groupEnd = -1;
+      const flush = () => {
+        if (group.length === 0) return;
+        const laneEnds: number[] = [];
+        for (const it of group) {
+          let lane = laneEnds.findIndex((end) => end <= it.span.start);
+          if (lane === -1) {
+            lane = laneEnds.length;
+            laneEnds.push(it.span.end);
+          } else {
+            laneEnds[lane] = it.span.end;
+          }
+          laneOf.set(it.ref, lane);
+        }
+        for (const it of group) lanesIn.set(it.ref, laneEnds.length);
+        group = [];
+        groupEnd = -1;
+      };
+      for (const it of items) {
+        if (group.length > 0 && it.span.start >= groupEnd) flush();
+        group.push(it);
+        groupEnd = Math.max(groupEnd, it.span.end);
+      }
+      flush();
+
+      for (const it of items) {
+        const chip = renderSlotChip(layer, it.ref, it.span);
+        const lanes = lanesIn.get(it.ref) ?? 1;
+        const lane = laneOf.get(it.ref) ?? 0;
+        const units = (n: number) => n / SLOT_MINUTES;
+        chip.setAttr("data-start", formatHM(it.span.start));
+        chip.setAttr("data-end", formatHM(it.span.end));
+        chip.style.top = `calc(var(--fr-slot-h) * ${units(it.span.start)})`;
+        chip.style.height = `calc(var(--fr-slot-h) * ${units(
+          it.span.end - it.span.start
+        )} - 3px)`;
+        chip.style.left = `${(lane / lanes) * 100}%`;
+        chip.style.width = `${100 / lanes}%`;
+        // let a drop land on the slot underneath a long event
+        wireDropZone(chip, (ref) => {
+          if (ref === it.ref) return;
+          placeRef(ref, slotKeyForMinutes(it.span.start));
+          delete spans[ref];
+          refresh();
+          persist();
+        });
+      }
+    };
+
     const rebuildGrid = () => {
       for (const key of slotKeys) {
         const row = gridEl.createDiv({ cls: "pixel-calendar-row" });
@@ -1014,13 +1639,23 @@ export default class FolderRoutinesPlugin extends Plugin {
         if (isToday && key === currentSlotKey(now)) row.addClass("is-now");
         row.createDiv({ cls: "pixel-calendar-time", text: key });
         const zone = row.createDiv({ cls: "pixel-calendar-slot" });
+        zone.setAttr("aria-label", `${key} — double-click to add a task`);
         wireDropZone(zone, (ref) => {
-          placeRef(ref, key);
+          const duration = durationOf(ref);
+          const start = parseHM(key) ?? 0;
+          setSpan(ref, start, start + duration);
           refresh();
           persist();
         });
-        for (const ref of plan[key] ?? []) renderSlotChip(zone, ref);
+        zone.addEventListener("dblclick", (e: MouseEvent) => {
+          const target = e.target as HTMLElement | null;
+          if (target?.closest(".pixel-calendar-chip")) return;
+          if (zone.querySelector(".pixel-calendar-task-input")) return;
+          e.preventDefault();
+          addTaskAt(zone, key);
+        });
       }
+      layoutEvents(gridEl.createDiv({ cls: "pixel-calendar-events" }));
     };
 
     refresh = () => {
@@ -1032,6 +1667,10 @@ export default class FolderRoutinesPlugin extends Plugin {
         cls: "pixel-calendar-side-title",
         text: "Habits",
       });
+      sideHeader.createSpan({
+        cls: "pixel-calendar-side-hint",
+        text: "Double-click a time to add a task",
+      });
       const sideList = sideEl.createDiv({ cls: "pixel-calendar-side-list" });
       if (habitFiles.length === 0) {
         sideList.createDiv({
@@ -1042,7 +1681,7 @@ export default class FolderRoutinesPlugin extends Plugin {
         renderSideFolder(root, sideList, 0);
       }
       wireDropZone(sideList, (ref) => {
-        removeRefEverywhere(ref);
+        discardRef(ref);
         refresh();
         persist();
       });
@@ -1053,6 +1692,13 @@ export default class FolderRoutinesPlugin extends Plugin {
     };
 
     refresh();
+
+    this.registerBlockListener(el, ctx, (ev) => {
+      if (ev.originId === blockId || ev.dateStr !== dateStr) return;
+      if (!subtasksByPath.has(ev.path)) return;
+      applyDone(ev.path, ev.subtask, ev.checked, ev.subtasks);
+      refresh();
+    });
 
     // Scroll to the current time (today) or a sensible default on first render.
     const scrollKey = isToday ? currentSlotKey(now) : "08:00";
@@ -1134,7 +1780,11 @@ export default class FolderRoutinesPlugin extends Plugin {
       .join("");
   }
 
-  private async renderStats(source: string, el: HTMLElement) {
+  private async renderStats(
+    source: string,
+    el: HTMLElement,
+    ctx: MarkdownPostProcessorContext
+  ) {
     el.empty();
 
     const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
@@ -1153,10 +1803,28 @@ export default class FolderRoutinesPlugin extends Plugin {
     toolbar.createSpan({ cls: "routine-stats-toolbar-range", text: "21 DAYS" });
 
     const boards = container.createDiv({ cls: "routine-stats-boards" });
-    this.renderStatsBoards(boards, root, 21);
+    const blockId = this.nextBlockId();
+    this.renderStatsBoards(boards, root, 21, blockId);
+
+    this.registerBlockListener(el, ctx, (ev) => {
+      if (ev.originId === blockId) return;
+      const file = this.app.vault.getAbstractFileByPath(ev.path);
+      if (!(file instanceof TFile)) return;
+      // wait for the metadata cache to catch up with the other block's write
+      this.waitForEntryState(file, ev.dateStr, ev.parentChecked)
+        .then(() => this.renderStatsBoards(boards, root, 21, blockId))
+        .catch((e) =>
+          console.error("Folder Routines: failed to refresh stats", e)
+        );
+    });
   }
 
-  private renderStatsBoards(host: HTMLElement, root: TFolder, days: number) {
+  private renderStatsBoards(
+    host: HTMLElement,
+    root: TFolder,
+    days: number,
+    blockId: string
+  ) {
     host.empty();
 
     const today = moment().startOf("day");
@@ -1332,9 +2000,18 @@ export default class FolderRoutinesPlugin extends Plugin {
               } else {
                 await this.setEntry(row.file, ds, target);
               }
+              this.emitRoutineChange({
+                dateStr: ds,
+                path: row.file.path,
+                subtask: null,
+                checked: target,
+                parentChecked: target,
+                subtasks,
+                originId: blockId,
+              });
               // wait for the metadata cache to reflect the write, then re-render
               await this.waitForEntryState(row.file, ds, target);
-              this.renderStatsBoards(host, root, days);
+              this.renderStatsBoards(host, root, days, blockId);
             } catch (e) {
               console.error("Folder Routines: failed to update entry", e);
               new Notice(`Folder Routines: failed to update ${row.file.basename}`);
@@ -1570,6 +2247,38 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
               value.trim() || "pixelCalendarPlan";
             await this.plugin.saveSettings();
           })
+      );
+
+    new Setting(containerEl)
+      .setName("Pixel calendar tasks property")
+      .setDesc(
+      "Frontmatter property in the daily note where one-off calendar tasks are stored."
+      )
+      .addText((text) =>
+      text
+        .setPlaceholder("pixelCalendarTasks")
+        .setValue(this.plugin.settings.pixelCalendarTasksProperty)
+        .onChange(async (value) => {
+          this.plugin.settings.pixelCalendarTasksProperty =
+            value.trim() || "pixelCalendarTasks";
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Pixel calendar times property")
+      .setDesc(
+        "Frontmatter property in the daily note where custom start/finish times are stored."
+      )
+      .addText((text) =>
+        text
+        .setPlaceholder("pixelCalendarTimes")
+        .setValue(this.plugin.settings.pixelCalendarTimesProperty)
+        .onChange(async (value) => {
+          this.plugin.settings.pixelCalendarTimesProperty =
+            value.trim() || "pixelCalendarTimes";
+          await this.plugin.saveSettings();
+        })
       );
   }
 }

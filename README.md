@@ -84,11 +84,14 @@ Plan your day by adding a `pixel-calendar` code block to your daily note (or use
 This renders a single-day planner titled **Day Plan** for the daily note's date, with 48 half-hour slots covering 24 hours. Every habit — and its subtasks — appears in a side tray:
 
 - **Drag** a habit or subtask from the tray into any time slot to schedule it. The plan is saved to the daily note's `pixelCalendarPlan` frontmatter property, so it persists across reloads.
+- **Double-click an empty time slot** to add a **one-off task** for that day — something that isn't one of your routines (see below).
+- **Stretch** anything you've scheduled: drag the bottom edge of a block to make it span more time.
 - **Check** any item — right inside its slot **or straight from the side tray** — this writes to `entries` / `subtaskEntries` exactly like the checklist (subtask/parent stay in sync), and both the tray and slot reflect the completion.
 - **Remove** a scheduled item with the `×` button on its slot chip.
 - **Collapse** the whole planner by clicking the **Day Plan** header, just like the checklist's top-level **Habits** toggle.
 - The side tray's folder sections are an **accordion** — opening one section collapses the others, so at most one is expanded at a time.
 - The row for the current half-hour is highlighted so you can see where you are in the day.
+- Each chip — and its checkbox — is tinted with its habit's **section color**, matching the checklist.
 
 ```yaml
 ---
@@ -99,6 +102,51 @@ pixelCalendarPlan:
     - "Routines/Fitness/Gym.md::Cool down"
 ---
 ```
+
+### Durations
+
+Every scheduled block starts as one 30-minute slot, but a habit rarely fits neatly into half an hour:
+
+- **Drag the bottom edge** of a block to stretch it over as many rows as you need (snaps to 15 minutes).
+- Moving a block to another slot **keeps its duration**, and overlapping blocks are shown side by side.
+- The side tray shows each scheduled habit's full time range.
+
+Anything other than a plain 30-minute slot is saved to the daily note's `pixelCalendarTimes` property:
+
+```yaml
+---
+pixelCalendarTimes:
+  Routines/Fitness/Gym.md:
+    start: "07:10"
+    end: "09:05"
+---
+```
+
+### One-off tasks
+
+Not everything is a routine. **Double-click any empty time slot** to type a task just for that day — no note is created and nothing is added to your routines folder:
+
+- Press **Enter** to add it, **Escape** to cancel.
+- **Check** it off like any other chip, **drag** it to another slot, or **double-click** it to rename.
+- The `×` button (or dragging it back to the tray) **deletes** it.
+
+One-off tasks are stored in the daily note's `pixelCalendarTasks` property and referenced from the plan with a `custom:` prefix:
+
+```yaml
+---
+pixelCalendarPlan:
+  "09:30":
+    - custom:m3k9f2-a1b2
+pixelCalendarTasks:
+  m3k9f2-a1b2:
+    title: Call the plumber
+    done: true
+---
+```
+
+### Live sync between blocks
+
+The checklist, the pixel calendar, and the stats board stay in sync **as you click**. Checking a habit in the calendar instantly ticks it in the **Habits** checklist (updating its progress bars), and vice versa — no page refresh, no reopening the note.
 
 ## Stats board
 
@@ -133,6 +181,9 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 - Checking an item writes the daily note's date into that note's `entries` property; unchecking removes it
 - Optional nested subtasks with pixel tree connectors: completing all subtasks completes the parent, and toggling the parent toggles all subtasks
 - `pixel-calendar` day planner: drag habits and subtasks into 30-minute slots, check them off from the slot or the side tray, with a collapsible **Day Plan** header and an accordion tray; the plan is saved in the daily note's `pixelCalendarPlan` property
+- One-off day tasks: double-click an empty time slot to add a task that isn't part of your routines, stored in the daily note's `pixelCalendarTasks` property
+- Stretchable calendar blocks (drag the bottom edge), stored in the daily note's `pixelCalendarTimes` property; overlapping blocks are laid out side by side
+- Live sync: checking an item in the calendar, the checklist, or the stats board updates every other block on the page instantly
 - `routine-stats` board: per-folder heatmap, streaks, levels, ranks, XP, weekly milestones, trend, and achievements
 - Clickable heatmap cells to log/remove completions directly from the stats board
 - The daily note's date is parsed from its filename using your Daily Notes / Periodic Notes format
@@ -145,6 +196,8 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 - **Subtasks property** — frontmatter property that lists a note's subtasks (default: `subtasks`)
 - **Subtask entries property** — frontmatter property where per-subtask completion dates are stored (default: `subtaskEntries`)
 - **Pixel calendar property** — frontmatter property in the daily note where the pixel calendar plan is stored (default: `pixelCalendarPlan`)
+- **Pixel calendar tasks property** — frontmatter property in the daily note where one-off calendar tasks are stored (default: `pixelCalendarTasks`)
+- **Pixel calendar times property** — frontmatter property in the daily note where custom start/finish times are stored (default: `pixelCalendarTimes`)
 
 ## Installation
 

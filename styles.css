@@ -27,6 +27,8 @@
   --fr-amber-hi: #e6c877;
   --fr-green: #47c95a;
   --fr-green-hi: #7fe38d;
+  --fr-task: #33b3bd;
+  --fr-task-hi: #6fdfe7;
 
   /* almost-imperceptible fractal grain, layered over solid panels */
   --fr-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
@@ -87,6 +89,8 @@
   --fr-ink-muted: #8a8574;
   --fr-line-dark: #2a2620;
   --fr-line-hi: #d8cda8;
+  --fr-task: #1f8e97;
+  --fr-task-hi: #4bc3cc;
   --fr-bevel: inset 2px 2px 0 0 rgba(255, 255, 255, 0.6),
     inset -2px -2px 0 0 rgba(0, 0, 0, 0.18);
   --fr-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E");
@@ -1500,12 +1504,15 @@
 }
 .pixel-calendar-grid {
   display: grid;
+  position: relative;
+  --fr-slot-h: 2.1rem;
+  --fr-time-w: 3.6rem;
 }
 .pixel-calendar-row {
   display: grid;
-  grid-template-columns: 3.6rem minmax(0, 1fr);
+  grid-template-columns: var(--fr-time-w) minmax(0, 1fr);
   align-items: stretch;
-  min-height: 2.1rem;
+  height: var(--fr-slot-h);
   border-top: 1px solid color-mix(in srgb, var(--fr-line-dark) 45%, transparent);
 }
 .pixel-calendar-row:first-child {
@@ -1541,13 +1548,28 @@
   flex-wrap: wrap;
   align-content: center;
   gap: 0.3rem;
-  min-height: 2.1rem;
+  height: 100%;
+  min-height: 0;
   padding: 0.2rem 0.3rem;
   transition: box-shadow 90ms steps(2), background-color 90ms steps(2);
 }
 .pixel-calendar-slot:hover {
   background-color: color-mix(in srgb, var(--fr-hover) 30%, transparent);
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fr-purple) 45%, transparent);
+}
+/* affordance: an empty slot hints that a double-click adds a one-off task */
+.pixel-calendar-slot:empty::before {
+  content: "+ TASK";
+  color: var(--fr-ink-muted);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  opacity: 0;
+  transition: opacity 90ms steps(2);
+  pointer-events: none;
+}
+.pixel-calendar-slot:empty:hover::before {
+  opacity: 0.8;
 }
 .pixel-calendar-slot.is-drop-target {
   background-color: color-mix(in srgb, var(--fr-purple) 20%, transparent);
@@ -1589,6 +1611,7 @@
   box-shadow: inset 0 0 0 2px #e0574f, 2px 2px 0 0 var(--fr-line-dark);
   cursor: grab;
 }
+
 .pixel-calendar-chip.is-done {
   border-left-color: var(--fr-green);
   background: linear-gradient(180deg, var(--fr-window) 0, var(--fr-window-inset) 100%);
@@ -1608,17 +1631,22 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* the owning habit of a subtask: its own line, smaller and faded */
+.pixel-calendar-chip-parent {
+  overflow: hidden;
+  color: var(--fr-ink-muted);
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0.7;
+}
 .pixel-calendar-side-chip .pixel-calendar-chip-info {
   flex: 1 1 auto;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
-}
-.pixel-calendar-chip-parent {
-  color: var(--fr-ink-muted);
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 .pixel-calendar-chip-time {
   justify-self: start;
@@ -1635,7 +1663,85 @@
   opacity: 0.72;
 }
 
-/* remove (×) button on a scheduled chip */
+/* ---- one-off tasks: created by double-clicking a time slot ---- */
+.pixel-calendar-chip.is-custom {
+  border-left: 2px solid var(--fr-line-dark);
+}
+.pixel-calendar-chip.is-editing {
+  padding: 0.15rem 0.25rem;
+  cursor: default;
+}
+.pixel-calendar-task-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.15rem 0.3rem;
+  color: var(--fr-ink-light);
+  background: var(--fr-window-inset);
+  border: 2px solid var(--fr-line-dark);
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 0 var(--fr-line-hi);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.pixel-calendar-task-input:focus {
+  outline: 2px solid var(--fr-line-hi);
+  outline-offset: 1px;
+}
+
+/* ---- event layer: chips float above the rows so they can span hours ---- */
+.pixel-calendar-events {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--fr-time-w);
+  right: 0;
+  pointer-events: none;
+}
+.pixel-calendar-event {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0 2px;
+  padding: 0.15rem 0.3rem;
+  pointer-events: auto;
+}
+.pixel-calendar-event-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.pixel-calendar-event .pixel-calendar-chip-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+/* keep the checkbox and × on the title's line, not centred over both lines */
+.pixel-calendar-event .pixel-calendar-chip-remove,
+.pixel-calendar-event input[type="checkbox"] {
+  margin-top: 0.05rem;
+}
+/* bottom edge: drag to stretch the event over more time (invisible, cursor-only) */
+.pixel-calendar-event-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+  background: transparent;
+  touch-action: none;
+}
+.pixel-calendar-event.is-resizing {
+  z-index: 3;
+  box-shadow: var(--fr-bevel), 0 0 0 2px var(--fr-accent);
+}
+
 .pixel-calendar-chip-remove {
   flex: 0 0 auto;
   width: 1.1rem;
@@ -1691,10 +1797,10 @@
   outline-offset: 2px;
 }
 .pixel-calendar-chip input[type="checkbox"]:checked {
-  background: linear-gradient(180deg, var(--fr-green-hi), var(--fr-green));
+  background: linear-gradient(180deg, var(--fr-accent-hi), var(--fr-accent));
   box-shadow: inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
     inset 2px 2px 0 0 rgba(255, 255, 255, 0.4),
-    0 0 0 2px color-mix(in srgb, var(--fr-green) 40%, transparent);
+    0 0 0 2px color-mix(in srgb, var(--fr-accent) 40%, transparent);
   animation: fr-check-pop 130ms steps(3);
 }
 .pixel-calendar-chip input[type="checkbox"]::after {
