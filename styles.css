@@ -21,6 +21,8 @@
   --fr-ink-muted: #7d7a70;
   --fr-line-dark: #0a0a0e;
   --fr-line-hi: #55556a;
+  /* flat "not done" fill — stats day cells, checklist + calendar checkboxes */
+  --fr-missed: #2a2a33;
   --fr-purple: #7c5cff;
   --fr-purple-hi: #a88bff;
   --fr-amber: #cea345;
@@ -89,6 +91,7 @@
   --fr-ink-muted: #8a8574;
   --fr-line-dark: #2a2620;
   --fr-line-hi: #d8cda8;
+  --fr-missed: #ddd4bb;
   --fr-task: #1f8e97;
   --fr-task-hi: #4bc3cc;
   --fr-bevel: inset 2px 2px 0 0 rgba(255, 255, 255, 0.6),
@@ -147,7 +150,7 @@
   min-height: 3rem;
   padding: 0.65rem 0.8rem;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.65rem;
   cursor: pointer;
@@ -208,8 +211,8 @@
   height: 1.5rem;
   color: var(--fr-window-inset);
   background: var(--fr-accent);
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: var(--fr-bevel);
+  border: 1px solid var(--fr-line-dark);
+  box-shadow: none;
   font-size: 0;
 }
 .folder-routines-collapse-icon::before {
@@ -229,14 +232,9 @@
   font-size: 1.02rem;
   line-height: 1;
   color: var(--fr-ink-light);
-  background: linear-gradient(
-    180deg,
-    var(--fr-accent-hi) 0,
-    var(--fr-accent) 55%,
-    color-mix(in srgb, var(--fr-accent) 60%, #000) 100%
-  );
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: var(--fr-bevel);
+  background: var(--fr-accent);
+  border: 1px solid var(--fr-line-dark);
+  box-shadow: none;
   clip-path: polygon(0 0, 100% 0, 100% 72%, 78% 100%, 0 100%);
 }
 
@@ -295,28 +293,25 @@
   letter-spacing: 0.03em;
 }
 
-/* chunky Zelda-heart / HP style blocks */
+/* one flat continuous bar, like a merged streak run in the stats heatmap */
 .folder-routines-progress-bar {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 0.7rem;
-  gap: 3px;
-  padding: 3px;
-  background: var(--fr-panel-inset);
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 1px 1px 0 0 rgba(0, 0, 0, 0.55);
+  position: relative;
+  overflow: hidden;
+  width: 9.6rem;
+  height: 0.9rem;
+  background: var(--fr-missed);
+  border: 1px solid var(--fr-line-dark);
+  box-shadow: none;
 }
-.folder-routines-progress-block {
-  height: 0.8rem;
-  background: var(--fr-window-inset);
-  box-shadow: inset -1px -1px 0 0 rgba(0, 0, 0, 0.45);
-  transition: background-color 90ms steps(1);
+.folder-routines-progress-fill {
+  width: var(--fr-progress, 0%);
+  height: 100%;
+  background: var(--fr-accent);
+  transition: width 180ms steps(8);
 }
-.folder-routines-progress-block.is-filled {
-  background: linear-gradient(180deg, var(--fr-accent-hi) 0, var(--fr-accent) 100%);
-  box-shadow: inset -1px -1px 0 0 rgba(0, 0, 0, 0.35),
-    inset 1px 1px 0 0 rgba(255, 255, 255, 0.35);
-  animation: fr-block-in 120ms steps(2);
+/* a full bar caps out in the brighter accent, as a completed run does */
+.folder-routines-section.is-complete .folder-routines-progress-fill {
+  background: var(--fr-accent-hi);
 }
 .folder-routines-section.is-complete .folder-routines-progress-count::before {
   content: "★ ";
@@ -481,7 +476,7 @@
 }
 
 /* ============================================================
-   Checkbox — bigger, brighter, tactile (Step 8)
+   Checkbox — flat pixel cell, matching the stats day grid
    ============================================================ */
 .folder-routines-checkbox,
 .folder-routines-label input[type="checkbox"] {
@@ -493,72 +488,69 @@
   width: 1.35rem;
   height: 1.35rem;
   margin: 0;
-  background: var(--fr-window-inset);
-  border: 2px solid var(--fr-line-dark);
+  background: var(--fr-missed);
+  border: 1px solid var(--fr-line-dark);
   border-radius: 0 !important;
-  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.5),
-    inset -1px -1px 0 0 rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+  opacity: 0.55;
   cursor: pointer;
-  transition: transform 90ms steps(2), background-color 90ms steps(1);
+  transition: transform 80ms steps(1), filter 80ms steps(1),
+    background-color 90ms steps(1);
 }
 .folder-routines-checkbox:hover,
 .folder-routines-label input[type="checkbox"]:hover {
-  border-color: var(--fr-accent);
+  filter: brightness(1.25);
+  opacity: 1;
 }
 .folder-routines-checkbox:focus-visible,
 .folder-routines-label input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--fr-purple);
+  outline: 2px solid var(--fr-accent);
   outline-offset: 2px;
 }
 .folder-routines-checkbox:active,
 .folder-routines-label input[type="checkbox"]:active {
-  transform: scale(0.82);
+  transform: scale(0.88);
 }
 .folder-routines-checkbox:checked,
 .folder-routines-label input[type="checkbox"]:checked {
-  background: linear-gradient(180deg, var(--fr-accent-hi), var(--fr-accent));
-  border-color: var(--fr-line-dark);
-  box-shadow: inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
-    inset 2px 2px 0 0 rgba(255, 255, 255, 0.4),
-    0 0 0 2px color-mix(in srgb, var(--fr-accent) 40%, transparent);
+  background: var(--fr-accent);
+  opacity: 1;
   animation: fr-check-pop 130ms steps(3);
 }
+.folder-routines-checkbox:checked:hover,
+.folder-routines-label input[type="checkbox"]:checked:hover {
+  filter: brightness(1.3);
+}
+/* hard-edged pixel tick — no bevel, drawn in the cell's own dark line color.
+   the mask/background resets undo the core + theme checkmark, which is drawn
+   as a masked box tinted by --checkbox-marker-color (Minimal sets it to
+   transparent, which would otherwise erase our tick). */
 .folder-routines-checkbox::after,
 .folder-routines-label input[type="checkbox"]::after {
-  content: "";
+  content: "" !important;
+  display: block !important;
   position: absolute;
   left: 50%;
   top: 46%;
-  width: 0.34rem;
-  height: 0.62rem;
-  border: solid var(--fr-window-inset);
-  border-width: 0 3px 3px 0;
+  width: 0.3rem;
+  height: 0.58rem;
+  background: none !important;
+  background-color: transparent !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  border: solid var(--fr-line-dark) !important;
+  border-width: 0 3px 3px 0 !important;
   border-radius: 0 !important;
+  box-shadow: none !important;
   opacity: 0;
-  transform: translate(-50%, -55%) rotate(45deg) scale(0.6);
-  transition: opacity 90ms steps(2), transform 90ms steps(2);
+  transform: translate(-50%, -55%) rotate(45deg) !important;
+  /* no transition here: unchecking must clear the tick instantly, not fade it */
+  transition: none;
 }
 .folder-routines-checkbox:checked::after,
 .folder-routines-label input[type="checkbox"]:checked::after {
   opacity: 1;
-  transform: translate(-50%, -55%) rotate(45deg) scale(1);
-}
-/* sparkle burst on a checked box (Step 7/14) */
-.folder-routines-checkbox:checked::before,
-.folder-routines-label input[type="checkbox"]:checked::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 3px;
-  height: 3px;
-  background: var(--fr-accent-hi);
-  box-shadow: 12px -9px 0 var(--fr-amber-hi), -13px -7px 0 var(--fr-green-hi),
-    11px 11px 0 var(--fr-accent-hi), -10px 10px 0 var(--fr-amber-hi);
-  opacity: 0;
-  transform: translate(-50%, -50%);
-  animation: fr-sparkle 420ms steps(4) 1;
-  pointer-events: none;
+  transition: opacity 90ms steps(2);
 }
 
 /* ============================================================
@@ -666,6 +658,13 @@
   width: 1.1rem;
   height: 1.1rem;
 }
+/* the tick shrinks with the box so it keeps the same visual margin */
+.folder-routines-subtask .folder-routines-checkbox::after,
+.folder-routines-subtask .folder-routines-label input[type="checkbox"]::after {
+  width: 0.24rem;
+  height: 0.46rem;
+  border-width: 0 2px 2px 0;
+}
 .folder-routines-subtask.is-checked .folder-routines-text {
   color: var(--fr-ink-dim);
   opacity: 0.65;
@@ -708,11 +707,6 @@
   0% { opacity: 0; transform: translateY(-50%); }
   25% { opacity: 1; transform: translateY(-120%); }
   100% { opacity: 0; transform: translateY(-260%); }
-}
-@keyframes fr-sparkle {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
-  40% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }
 }
 @keyframes fr-cursor {
   0%, 100% { transform: translateY(-50%) translateX(0); }
@@ -764,15 +758,11 @@
   /* semantic colors */
   --fr-done: #47c95a;
   --fr-done-hi: #7fe38d;
-  --fr-missed: #2a2a33;
   --fr-today: #e8c14a;
   --fr-today-hi: #ffe27a;
   --fr-perfect: #a88bff;
   --fr-streak: #f0913a;
   gap: 1.2rem;
-}
-.theme-light .routine-stats {
-  --fr-missed: #ddd4bb;
 }
 
 .routine-stats-toolbar {
@@ -1333,7 +1323,7 @@
     padding: 0.5rem;
   }
   .folder-routines-heading {
-    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     row-gap: 0.45rem;
     padding: 0.65rem 0.65rem;
   }
@@ -1343,7 +1333,7 @@
     grid-template-columns: auto 1fr;
   }
   .folder-routines-progress-bar {
-    grid-auto-columns: 1fr;
+    width: auto;
   }
   .folder-routines-label {
     padding-right: 2rem;
@@ -1831,7 +1821,7 @@
   transform: translate(1px, 1px);
 }
 
-/* checkbox inside a scheduled slot chip (retro square) */
+/* checkbox inside a scheduled slot chip — flat pixel cell, as in the stats grid */
 .pixel-calendar-chip input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -1841,48 +1831,57 @@
   width: 1.05rem;
   height: 1.05rem;
   margin: 0;
-  background: var(--fr-window-inset);
-  border: 2px solid var(--fr-line-dark);
+  background: var(--fr-missed);
+  border: 1px solid var(--fr-line-dark);
   border-radius: 0 !important;
-  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.5),
-    inset -1px -1px 0 0 rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+  opacity: 0.55;
   cursor: pointer;
-  transition: transform 90ms steps(2), background-color 90ms steps(1);
+  transition: transform 80ms steps(1), filter 80ms steps(1),
+    background-color 90ms steps(1);
 }
 .pixel-calendar-chip input[type="checkbox"]:hover {
-  border-color: var(--fr-accent);
+  filter: brightness(1.25);
+  opacity: 1;
 }
 .pixel-calendar-chip input[type="checkbox"]:active {
-  transform: scale(0.82);
+  transform: scale(0.88);
 }
 .pixel-calendar-chip input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--fr-purple);
+  outline: 2px solid var(--fr-accent);
   outline-offset: 2px;
 }
 .pixel-calendar-chip input[type="checkbox"]:checked {
-  background: linear-gradient(180deg, var(--fr-accent-hi), var(--fr-accent));
-  box-shadow: inset -1px -1px 0 0 rgba(0, 0, 0, 0.4),
-    inset 2px 2px 0 0 rgba(255, 255, 255, 0.4),
-    0 0 0 2px color-mix(in srgb, var(--fr-accent) 40%, transparent);
+  background: var(--fr-accent);
+  opacity: 1;
   animation: fr-check-pop 130ms steps(3);
 }
+.pixel-calendar-chip input[type="checkbox"]:checked:hover {
+  filter: brightness(1.3);
+}
 .pixel-calendar-chip input[type="checkbox"]::after {
-  content: "";
+  content: "" !important;
+  display: block !important;
   position: absolute;
   left: 50%;
   top: 46%;
-  width: 0.28rem;
-  height: 0.52rem;
-  border: solid var(--fr-window-inset);
-  border-width: 0 3px 3px 0;
+  width: 0.24rem;
+  height: 0.46rem;
+  background: none !important;
+  background-color: transparent !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  border: solid var(--fr-line-dark) !important;
+  border-width: 0 2px 2px 0 !important;
   border-radius: 0 !important;
+  box-shadow: none !important;
   opacity: 0;
-  transform: translate(-50%, -55%) rotate(45deg) scale(0.6);
-  transition: opacity 90ms steps(2), transform 90ms steps(2);
+  transform: translate(-50%, -55%) rotate(45deg) !important;
+  transition: none;
 }
 .pixel-calendar-chip input[type="checkbox"]:checked::after {
   opacity: 1;
-  transform: translate(-50%, -55%) rotate(45deg) scale(1);
+  transition: opacity 90ms steps(2);
 }
 
 @media (max-width: 600px) {

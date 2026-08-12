@@ -357,8 +357,6 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
       cls: "folder-routines-section folder-routines-root"
     });
     const header = section.createEl("h2", { cls: "folder-routines-heading" });
-    header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BC" });
-    header.createSpan({ cls: "folder-routines-banner", text: this.getCategoryIcon("Habits") });
     header.createSpan({ cls: "folder-routines-heading-title", text: "Habits" });
     this.createProgress(header);
     const body = section.createDiv({ cls: "folder-routines-body" });
@@ -396,8 +394,6 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
       section.addClass(`folder-routines-color-${colorIndex + 1}`);
       const tag = "h" + Math.min(depth, 6);
       const header = section.createEl(tag, { cls: "folder-routines-heading" });
-      header.createSpan({ cls: "folder-routines-collapse-icon", text: "\u25BC" });
-      header.createSpan({ cls: "folder-routines-banner", text: this.getCategoryIcon(sub.name) });
       header.createSpan({ cls: "folder-routines-heading-title", text: sub.name });
       this.createProgress(header);
       const body = section.createDiv({ cls: "folder-routines-body" });
@@ -414,9 +410,7 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
     badge.createSpan({ cls: "folder-routines-progress-label", text: "QUESTS" });
     badge.createSpan({ cls: "folder-routines-progress-count", text: "0/0" });
     const bar = progress.createDiv({ cls: "folder-routines-progress-bar" });
-    for (let i = 0; i < _FolderRoutinesPlugin.PROGRESS_BLOCKS; i++) {
-      bar.createDiv({ cls: "folder-routines-progress-block" });
-    }
+    bar.createDiv({ cls: "folder-routines-progress-fill" });
   }
   updateSectionProgress(section) {
     const checkboxes = Array.from(
@@ -432,14 +426,10 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
     const count = progress.querySelector(".folder-routines-progress-count");
     if (count)
       count.setText(`${done}/${total}`);
-    const blocks = Array.from(
-      progress.querySelectorAll(".folder-routines-progress-block")
-    );
+    const fill = progress.querySelector(".folder-routines-progress-fill");
     const ratio = total === 0 ? 0 : done / total;
-    const filled = Math.round(ratio * blocks.length);
-    blocks.forEach((block, index) => {
-      block.toggleClass("is-filled", index < filled);
-    });
+    if (fill)
+      fill.style.setProperty("--fr-progress", `${ratio * 100}%`);
     const wasComplete = section.hasClass("is-complete");
     const isComplete = total > 0 && done === total;
     section.toggleClass("is-complete", isComplete);
@@ -1933,7 +1923,6 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
     });
   }
 };
-_FolderRoutinesPlugin.PROGRESS_BLOCKS = 10;
 _FolderRoutinesPlugin.SECTION_COLORS = 4;
 var FolderRoutinesPlugin = _FolderRoutinesPlugin;
 var FolderRoutinesSettingTab = class extends import_obsidian.PluginSettingTab {

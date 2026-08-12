@@ -465,8 +465,6 @@ export default class FolderRoutinesPlugin extends Plugin {
       cls: "folder-routines-section folder-routines-root",
     });
     const header = section.createEl("h2", { cls: "folder-routines-heading" });
-    header.createSpan({ cls: "folder-routines-collapse-icon", text: "▼" });
-    header.createSpan({ cls: "folder-routines-banner", text: this.getCategoryIcon("Habits") });
     header.createSpan({ cls: "folder-routines-heading-title", text: "Habits" });
     this.createProgress(header);
 
@@ -515,8 +513,6 @@ export default class FolderRoutinesPlugin extends Plugin {
       section.addClass(`folder-routines-color-${colorIndex + 1}`);
       const tag = ("h" + Math.min(depth, 6)) as keyof HTMLElementTagNameMap;
       const header = section.createEl(tag, { cls: "folder-routines-heading" });
-      header.createSpan({ cls: "folder-routines-collapse-icon", text: "▼" });
-      header.createSpan({ cls: "folder-routines-banner", text: this.getCategoryIcon(sub.name) });
       header.createSpan({ cls: "folder-routines-heading-title", text: sub.name });
       this.createProgress(header);
 
@@ -530,7 +526,6 @@ export default class FolderRoutinesPlugin extends Plugin {
     }
   }
 
-  private static readonly PROGRESS_BLOCKS = 10;
   private static readonly SECTION_COLORS = 4;
 
   private createProgress(header: HTMLElement) {
@@ -539,9 +534,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     badge.createSpan({ cls: "folder-routines-progress-label", text: "QUESTS" });
     badge.createSpan({ cls: "folder-routines-progress-count", text: "0/0" });
     const bar = progress.createDiv({ cls: "folder-routines-progress-bar" });
-    for (let i = 0; i < FolderRoutinesPlugin.PROGRESS_BLOCKS; i++) {
-      bar.createDiv({ cls: "folder-routines-progress-block" });
-    }
+    bar.createDiv({ cls: "folder-routines-progress-fill" });
   }
 
   private updateSectionProgress(section: HTMLElement) {
@@ -558,14 +551,9 @@ export default class FolderRoutinesPlugin extends Plugin {
     const count = progress.querySelector<HTMLElement>(".folder-routines-progress-count");
     if (count) count.setText(`${done}/${total}`);
 
-    const blocks = Array.from(
-      progress.querySelectorAll<HTMLElement>(".folder-routines-progress-block")
-    );
+    const fill = progress.querySelector<HTMLElement>(".folder-routines-progress-fill");
     const ratio = total === 0 ? 0 : done / total;
-    const filled = Math.round(ratio * blocks.length);
-    blocks.forEach((block, index) => {
-      block.toggleClass("is-filled", index < filled);
-    });
+    if (fill) fill.style.setProperty("--fr-progress", `${ratio * 100}%`);
 
     const wasComplete = section.hasClass("is-complete");
     const isComplete = total > 0 && done === total;
