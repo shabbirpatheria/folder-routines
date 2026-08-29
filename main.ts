@@ -22,6 +22,7 @@ interface FolderRoutinesSettings {
   pixelCalendarProperty: string;
   pixelCalendarTasksProperty: string;
   pixelCalendarTimesProperty: string;
+  calendarStartTime: string;
 }
 
 const DEFAULT_SETTINGS: FolderRoutinesSettings = {
@@ -33,6 +34,7 @@ const DEFAULT_SETTINGS: FolderRoutinesSettings = {
   pixelCalendarProperty: "pixelCalendarPlan",
   pixelCalendarTasksProperty: "pixelCalendarTasks",
   pixelCalendarTimesProperty: "pixelCalendarTimes",
+  calendarStartTime: "00:00",
 };
 
 const SLOT_MINUTES = 30;
@@ -66,6 +68,7 @@ interface TimeSpan {
 }
 
 type TimeSpanMap = Record<string, TimeSpan>;
+type EntryStateOverrides = Map<string, Map<string, boolean>>;
 
 function clampMinute(v: number): number {
   return Math.max(0, Math.min(DAY_MINUTES, Math.round(v)));
@@ -91,11 +94,16 @@ function parseHM(text: unknown): number | null {
   return clampMinute(h * 60 + mm);
 }
 
-function slotKeyForMinutes(min: number): string {
+/* Largest slot boundary at or below a time, never past the final slot. */
+function snapToSlot(min: number): number {
   const snapped =
     Math.floor(Math.min(min, DAY_MINUTES - SLOT_MINUTES) / SLOT_MINUTES) *
     SLOT_MINUTES;
-  return formatHM(Math.max(0, snapped));
+  return Math.max(0, snapped);
+}
+
+function slotKeyForMinutes(min: number): string {
+  return formatHM(snapToSlot(min));
 }
 
 /* Per-block registry of "apply this completion state to my UI" callbacks,
@@ -146,9 +154,11 @@ function newCustomTaskId(): string {
   );
 }
 
-function buildSlotKeys(): string[] {
+/* Slots from the start of the visible day through to midnight. Anything
+   earlier is simply not part of the grid. */
+function buildSlotKeys(startMin = 0): string[] {
   const keys: string[] = [];
-  for (let m = 0; m < 24 * 60; m += SLOT_MINUTES) {
+  for (let m = snapToSlot(startMin); m < 24 * 60; m += SLOT_MINUTES) {
     const h = Math.floor(m / 60);
     const mm = m % 60;
     keys.push(String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0"));
@@ -229,6 +239,37 @@ export default class FolderRoutinesPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  /* First minute the calendar shows, snapped down to a slot boundary. An
+     unreadable setting falls back to midnight. */
+  calendarStartMinutes(): number {
+    return snapToSlot(parseHM(this.settings.calendarStartTime) ?? 0);
+  }
+
+  /* The configured routines folder, or null when it no longer exists. The
+     picker stores the vault root as "/", which is not a normal folder path. */
+  routinesRoot(): TFolder | null {
+    const path = this.settings.routinesFolder;
+    const vaultRoot = this.app.vault.getRoot();
+    if (path === "/" || path === vaultRoot.path) return vaultRoot;
+    const folder = this.app.vault.getAbstractFileByPath(path);
+    return folder instanceof TFolder ? folder : null;
+  }
+
+  /* Every folder in the vault, each parent listed before its children, so the
+     settings picker reads like the file explorer. */
+  allFolderPaths(): string[] {
+    const out: string[] = [];
+    const walk = (folder: TFolder) => {
+      out.push(folder.path);
+      const subs = folder.children
+        .filter((c): c is TFolder => c instanceof TFolder)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      for (const sub of subs) walk(sub);
+    };
+    walk(this.app.vault.getRoot());
+    return out;
   }
 
   /* ============================================================
@@ -440,8 +481,8 @@ export default class FolderRoutinesPlugin extends Plugin {
   private async renderRoutines(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
     el.empty();
 
-    const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
-    if (!(root instanceof TFolder)) {
+    const root = this.routinesRoot();
+    if (!root) {
       el.createDiv({
         cls: "folder-routines-error",
         text: `Folder Routines: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`,
@@ -536,6 +577,33 @@ export default class FolderRoutinesPlugin extends Plugin {
     const bar = progress.createDiv({ cls: "folder-routines-progress-bar" });
     bar.createDiv({ cls: "folder-routines-progress-fill" });
   }
+  private onAnimationComplete(
+    element: HTMLElement,
+    animationName: string,
+    complete: () => void
+  ) {
+    let completed = false;
+    const finish = (event?: AnimationEvent) => {
+      if (
+        event &&
+        (event.target !== element || event.animationName !== animationName)
+      )
+        return;
+      if (completed) return;
+      completed = true;
+      element.removeEventListener("animationend", finish);
+      element.removeEventListener("animationcancel", finish);
+      complete();
+    };
+
+    element.addEventListener("animationend", finish);
+    element.addEventListener("animationcancel", finish);
+    const activeAnimations = window
+      .getComputedStyle(element)
+      .animationName.split(",")
+      .map((name) => name.trim());
+    if (!activeAnimations.includes(animationName)) finish();
+  }
 
   private updateSectionProgress(section: HTMLElement) {
     const checkboxes = Array.from(
@@ -560,7 +628,16 @@ export default class FolderRoutinesPlugin extends Plugin {
     section.toggleClass("is-complete", isComplete);
     if (isComplete && !wasComplete) {
       section.addClass("is-just-completed");
-      window.setTimeout(() => section.removeClass("is-just-completed"), 600);
+      const header = section.querySelector<HTMLElement>(
+        ":scope > .folder-routines-heading"
+      );
+      if (header) {
+        this.onAnimationComplete(header, "fr-section-flash", () =>
+          section.removeClass("is-just-completed")
+        );
+      } else {
+        section.removeClass("is-just-completed");
+      }
       this.showQuestBanner(section);
     }
   }
@@ -574,7 +651,7 @@ export default class FolderRoutinesPlugin extends Plugin {
       cls: "folder-routines-quest-banner",
       text: "★ QUEST COMPLETE ★",
     });
-    window.setTimeout(() => banner.remove(), 1600);
+    this.onAnimationComplete(banner, "fr-banner", () => banner.remove());
   }
 
   private showXpPopup(host: HTMLElement) {
@@ -582,7 +659,7 @@ export default class FolderRoutinesPlugin extends Plugin {
       cls: "folder-routines-xp-popup",
       text: "+5 XP",
     });
-    window.setTimeout(() => popup.remove(), 900);
+    this.onAnimationComplete(popup, "fr-xp", () => popup.remove());
   }
 
   private getCategoryIcon(_name: string): string {
@@ -913,8 +990,8 @@ export default class FolderRoutinesPlugin extends Plugin {
   ) {
     el.empty();
 
-    const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
-    if (!(root instanceof TFolder)) {
+    const root = this.routinesRoot();
+    if (!root) {
       el.createDiv({
         cls: "folder-routines-error",
         text: `Folder Routines: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`,
@@ -993,7 +1070,13 @@ export default class FolderRoutinesPlugin extends Plugin {
       }
     }
 
-    const slotKeys = buildSlotKeys();
+    /* The grid starts at the configured time; earlier slots are left out
+       entirely, and events before it are clipped to the top (or dropped when
+       they finish before the day even begins). */
+    const dayStart = this.calendarStartMinutes();
+    const startRow = dayStart / SLOT_MINUTES;
+    const visibleStart = (min: number) => Math.max(min, dayStart);
+    const slotKeys = buildSlotKeys(dayStart);
     const now = moment();
     const isToday = date.isSame(now, "day");
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -1266,10 +1349,8 @@ export default class FolderRoutinesPlugin extends Plugin {
       input.addEventListener("blur", () => finish(true));
       input.addEventListener("click", (e) => e.stopPropagation());
       input.addEventListener("dblclick", (e) => e.stopPropagation());
-      window.setTimeout(() => {
-        input.focus();
-        input.select();
-      }, 0);
+      input.focus();
+      input.select();
     };
 
     const addTaskAt = (zone: HTMLElement, slotKey: string) => {
@@ -1328,7 +1409,7 @@ export default class FolderRoutinesPlugin extends Plugin {
             Math.max(span.start + MIN_DURATION, snap(startEnd + deltaMin))
           );
           chip.style.height = `calc(var(--fr-slot-h) * ${
-            (endMin - span.start) / SLOT_MINUTES
+            (endMin - visibleStart(span.start)) / SLOT_MINUTES
           } - 3px)`;
         };
         const onUp = () => {
@@ -1567,7 +1648,13 @@ export default class FolderRoutinesPlugin extends Plugin {
     const layoutEvents = (layer: HTMLElement, rowEls: HTMLElement[]) => {
       const items: { ref: string; span: TimeSpan }[] = [];
       for (const key of Object.keys(plan)) {
-        for (const ref of plan[key]) items.push({ ref, span: spanOf(ref, key) });
+        for (const ref of plan[key]) {
+          const span = spanOf(ref, key);
+          // finished before the visible day starts: nothing to draw, but the
+          // tray still lists it with its time so it can be dragged back
+          if (span.end <= dayStart) continue;
+          items.push({ ref, span });
+        }
       }
       // longer events first so they claim a column for their whole run
       items.sort(
@@ -1576,8 +1663,12 @@ export default class FolderRoutinesPlugin extends Plugin {
           b.span.end - b.span.start - (a.span.end - a.span.start)
       );
 
-      const firstRow = (min: number) => Math.floor(min / SLOT_MINUTES);
-      const lastRow = (min: number) => Math.floor((min - 1) / SLOT_MINUTES);
+      /* Rows are numbered from the first visible slot, not from midnight. */
+      const firstRow = (min: number) =>
+        Math.floor(visibleStart(min) / SLOT_MINUTES) - startRow;
+      const lastRow = (min: number) =>
+        Math.max(0, Math.floor((min - 1) / SLOT_MINUTES) - startRow);
+      const rowStartMin = (row: number) => (row + startRow) * SLOT_MINUTES;
 
       /* Cells an event covers, as row*MAX_BANDS+band keys. An event that
          continues past a row fills that row to the bottom, and fills the
@@ -1651,11 +1742,11 @@ export default class FolderRoutinesPlugin extends Plugin {
         const top =
           rowTop[p.r1] +
           p.band +
-          (p.span.start - p.r1 * SLOT_MINUTES) / SLOT_MINUTES;
+          (visibleStart(p.span.start) - rowStartMin(p.r1)) / SLOT_MINUTES;
         const bottom =
           rowTop[p.r2] +
           p.band +
-          (p.span.end - p.r2 * SLOT_MINUTES) / SLOT_MINUTES;
+          (p.span.end - rowStartMin(p.r2)) / SLOT_MINUTES;
         chip.setAttr("data-start", formatHM(p.span.start));
         chip.setAttr("data-end", formatHM(p.span.end));
         chip.setAttr("data-band", String(p.band));
@@ -1666,7 +1757,7 @@ export default class FolderRoutinesPlugin extends Plugin {
         // let a drop land on the slot underneath a long event
         wireDropZone(chip, (ref) => {
           if (ref === p.ref) return;
-          placeRef(ref, slotKeyForMinutes(p.span.start));
+          placeRef(ref, slotKeyForMinutes(visibleStart(p.span.start)));
           delete spans[ref];
           refresh();
           persist();
@@ -1748,7 +1839,10 @@ export default class FolderRoutinesPlugin extends Plugin {
     });
 
     // Scroll to the current time (today) or a sensible default on first render.
-    const scrollKey = isToday ? currentSlotKey(now) : "08:00";
+    // Either can fall outside the visible range, which just leaves us at the top.
+    const scrollKey = isToday
+      ? currentSlotKey(now)
+      : slotKeyForMinutes(visibleStart(8 * 60));
     const targetRow = gridEl.querySelector(
       `[data-slot="${scrollKey}"]`
     ) as HTMLElement | null;
@@ -1759,23 +1853,42 @@ export default class FolderRoutinesPlugin extends Plugin {
      Stats board (```routine-stats```)
      ============================================================ */
 
-  private getEntryDates(file: TFile): Set<string> {
+  private getEntryDates(
+    file: TFile,
+    overrides?: EntryStateOverrides
+  ): Set<string> {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    return new Set(this.normalizeEntries(fm?.[this.settings.entriesProperty]));
+    const entries = new Set(
+      this.normalizeEntries(fm?.[this.settings.entriesProperty])
+    );
+    const fileOverrides = overrides?.get(file.path);
+    if (!fileOverrides) return entries;
+
+    for (const [dateStr, expected] of fileOverrides) {
+      if (entries.has(dateStr) === expected) {
+        fileOverrides.delete(dateStr);
+      } else if (expected) {
+        entries.add(dateStr);
+      } else {
+        entries.delete(dateStr);
+      }
+    }
+    if (fileOverrides.size === 0) overrides?.delete(file.path);
+    return entries;
   }
 
-  /* Poll the metadata cache until it reflects the just-written entry state,
-     so a re-render doesn't read stale frontmatter. */
-  private async waitForEntryState(
-    file: TFile,
+  private setEntryOverride(
+    overrides: EntryStateOverrides,
+    path: string,
     dateStr: string,
     expected: boolean,
-    tries = 20
-  ): Promise<void> {
-    for (let i = 0; i < tries; i++) {
-      if (this.getEntryDates(file).has(dateStr) === expected) return;
-      await new Promise((r) => window.setTimeout(r, 25));
+  ) {
+    let fileOverrides = overrides.get(path);
+    if (!fileOverrides) {
+      fileOverrides = new Map();
+      overrides.set(path, fileOverrides);
     }
+    fileOverrides.set(dateStr, expected);
   }
 
   private collectSectionFiles(folder: TFolder): TFile[] {
@@ -1834,8 +1947,8 @@ export default class FolderRoutinesPlugin extends Plugin {
   ) {
     el.empty();
 
-    const root = this.app.vault.getAbstractFileByPath(this.settings.routinesFolder);
-    if (!(root instanceof TFolder)) {
+    const root = this.routinesRoot();
+    if (!root) {
       el.createDiv({
         cls: "folder-routines-error",
         text: `Folder Routines: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`,
@@ -1851,18 +1964,26 @@ export default class FolderRoutinesPlugin extends Plugin {
 
     const boards = container.createDiv({ cls: "routine-stats-boards" });
     const blockId = this.nextBlockId();
-    this.renderStatsBoards(boards, root, 21, blockId);
+    const entryOverrides: EntryStateOverrides = new Map();
+    this.renderStatsBoards(boards, root, 21, blockId, entryOverrides);
 
     this.registerBlockListener(el, ctx, (ev) => {
       if (ev.originId === blockId) return;
       const file = this.app.vault.getAbstractFileByPath(ev.path);
       if (!(file instanceof TFile)) return;
-      // wait for the metadata cache to catch up with the other block's write
-      this.waitForEntryState(file, ev.dateStr, ev.parentChecked)
-        .then(() => this.renderStatsBoards(boards, root, 21, blockId))
-        .catch((e) =>
-          console.error("Folder Routines: failed to refresh stats", e)
-        );
+      this.setEntryOverride(
+        entryOverrides,
+        file.path,
+        ev.dateStr,
+        ev.parentChecked
+      );
+      this.renderStatsBoards(
+        boards,
+        root,
+        21,
+        blockId,
+        entryOverrides
+      );
     });
   }
 
@@ -1870,7 +1991,8 @@ export default class FolderRoutinesPlugin extends Plugin {
     host: HTMLElement,
     root: TFolder,
     days: number,
-    blockId: string
+    blockId: string,
+    entryOverrides: EntryStateOverrides
   ) {
     host.empty();
 
@@ -1915,7 +2037,7 @@ export default class FolderRoutinesPlugin extends Plugin {
 
       /* ---- gather per-day / per-routine data ---- */
       const rows = section.files.map((file) => {
-        const dates = this.getEntryDates(file);
+        const dates = this.getEntryDates(file, entryOverrides);
         const flags = dateStrs.map((ds) => dates.has(ds));
         return { file, flags, done: flags.filter(Boolean).length };
       });
@@ -2097,9 +2219,19 @@ export default class FolderRoutinesPlugin extends Plugin {
                 subtasks,
                 originId: blockId,
               });
-              // wait for the metadata cache to reflect the write, then re-render
-              await this.waitForEntryState(row.file, ds, target);
-              this.renderStatsBoards(host, root, days, blockId);
+              this.setEntryOverride(
+                entryOverrides,
+                row.file.path,
+                ds,
+                target
+              );
+              this.renderStatsBoards(
+                host,
+                root,
+                days,
+                blockId,
+                entryOverrides
+              );
             } catch (e) {
               console.error("Folder Routines: failed to update entry", e);
               new Notice(`Folder Routines: failed to update ${row.file.basename}`);
@@ -2155,9 +2287,7 @@ export default class FolderRoutinesPlugin extends Plugin {
       });
 
       // start scrolled to the far right (most recent days / today)
-      window.requestAnimationFrame(() => {
-        grid.scrollLeft = grid.scrollWidth;
-      });
+      grid.scrollLeft = grid.scrollWidth;
 
       /* ---- weekly milestones ---- */
       const milestones = board.createDiv({ cls: "routine-stats-weeks" });
@@ -2257,16 +2387,24 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Routines folder")
-      .setDesc("Vault-relative path to the root folder (e.g. Routines).")
-      .addText((text) =>
-        text
-          .setPlaceholder("Routines")
-          .setValue(this.plugin.settings.routinesFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.routinesFolder = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
+      .setDesc("Folder holding your routine notes.")
+      .addDropdown((drop) => {
+        const current = this.plugin.settings.routinesFolder;
+        const folders = this.plugin.allFolderPaths();
+        // A folder that has since been renamed or deleted still gets an entry,
+        // so the picker shows what is stored instead of a different folder.
+        if (!folders.includes(current))
+          drop.addOption(
+            current,
+            current === "" ? "(none selected)" : `${current} (not found)`
+          );
+        for (const path of folders)
+          drop.addOption(path, path === "/" ? "/ (vault root)" : path);
+        drop.setValue(current).onChange(async (value) => {
+          this.plugin.settings.routinesFolder = value;
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Entries property")
@@ -2368,5 +2506,20 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         })
       );
+
+    new Setting(containerEl)
+      .setName("Calendar start time")
+      .setDesc(
+        "Earliest time the day plan shows. Slots before it are hidden; reopen the note to apply."
+      )
+      .addDropdown((drop) => {
+        for (const key of buildSlotKeys()) drop.addOption(key, key);
+        drop
+          .setValue(formatHM(this.plugin.calendarStartMinutes()))
+          .onChange(async (value) => {
+            this.plugin.settings.calendarStartTime = value;
+            await this.plugin.saveSettings();
+          });
+      });
   }
 }

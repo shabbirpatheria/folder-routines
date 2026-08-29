@@ -123,7 +123,7 @@ Plan your day by adding a `pixel-calendar` code block to your daily note (or use
 ```
 ````
 
-This renders a single-day planner titled **Day Plan** for the daily note's date, with 48 half-hour slots covering 24 hours. Every habit — and its subtasks — appears in a side tray:
+This renders a single-day planner titled **Day Plan** for the daily note's date, with 48 half-hour slots covering 24 hours (fewer if you set a later **Calendar start time**). Every habit — and its subtasks — appears in a side tray:
 
 - **Drag** a habit or subtask from the tray into any time slot to schedule it. The plan is saved to the daily note's `pixelCalendarPlan` frontmatter property, so it persists across reloads.
 - **Double-click an empty time slot** to add a **one-off task** for that day — something that isn't one of your routines (see below).
@@ -133,6 +133,7 @@ This renders a single-day planner titled **Day Plan** for the daily note's date,
 - **Collapse** the whole planner by clicking the **Day Plan** header, just like the checklist's top-level **Habits** toggle.
 - The side tray's folder sections are an **accordion** — opening one section collapses the others, so at most one is expanded at a time.
 - The row for the current half-hour is highlighted so you can see where you are in the day.
+- **Trim the early hours** with the **Calendar start time** setting: pick when your day begins and the grid starts there, so a 24-hour column doesn't waste space on hours you never plan. Anything already scheduled earlier still shows its time in the side tray, ready to be dragged back onto the grid.
 - Each chip — and its checkbox — is tinted with its habit's **section color**, matching the checklist.
 
 ```yaml
@@ -215,7 +216,7 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 
 ## Settings
 
-- **Routines folder** — vault-relative path to the root folder (default: `Routines`)
+- **Routines folder** — the folder holding your routine notes, picked from a dropdown of every folder in the vault (default: `Routines`)
 - **Entries property** — frontmatter property updated when an item is checked (default: `entries`)
 - **Stored date format** — Moment format used for the date written into `entries` (default: `YYYY-MM-DD`)
 - **Subtasks property** — frontmatter property that lists a note's subtasks (default: `subtasks`)
@@ -223,6 +224,7 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 - **Pixel calendar property** — frontmatter property in the daily note where the pixel calendar plan is stored (default: `pixelCalendarPlan`)
 - **Pixel calendar tasks property** — frontmatter property in the daily note where one-off calendar tasks are stored (default: `pixelCalendarTasks`)
 - **Pixel calendar times property** — frontmatter property in the daily note where custom start/finish times are stored (default: `pixelCalendarTimes`)
+- **Calendar start time** — earliest half-hour slot the day plan shows; everything before it is hidden (default: `00:00`)
 
 ## Installation
 
