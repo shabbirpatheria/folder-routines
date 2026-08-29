@@ -249,12 +249,29 @@
   text-transform: uppercase;
   text-shadow: 2px 2px 0 var(--fr-line-dark);
 }
+.folder-routines:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-heading-title {
+  color: var(--fr-accent);
+}
 .theme-light .folder-routines-heading-title {
   text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
 }
 .folder-routines-root > .folder-routines-heading .folder-routines-heading-title {
   font-size: 1.2rem;
   letter-spacing: 0.2em;
+}
+.folder-routines:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-heading-title {
+  color: var(--fr-purple-hi);
+}
+.theme-light
+  .folder-routines:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-heading-title {
+  color: var(--fr-purple);
 }
 
 /* ============================================================
@@ -312,6 +329,32 @@
 /* a full bar caps out in the brighter accent, as a completed run does */
 .folder-routines-section.is-complete .folder-routines-progress-fill {
   background: var(--fr-accent-hi);
+}
+.folder-routines:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-progress-fill {
+  background: var(--fr-purple-hi);
+}
+.theme-light
+  .folder-routines:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-progress-fill {
+  background: var(--fr-purple);
+}
+.folder-routines:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-progress-label {
+  color: var(--fr-purple-hi);
+}
+.theme-light
+  .folder-routines:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-progress-label {
+  color: var(--fr-purple);
 }
 .folder-routines-section.is-complete .folder-routines-progress-count::before {
   content: "★ ";

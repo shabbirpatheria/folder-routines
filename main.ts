@@ -7,6 +7,7 @@ import {
   TFolder,
   MarkdownPostProcessorContext,
   MarkdownRenderChild,
+  Modal,
   Notice,
   Editor,
   MarkdownView,
@@ -15,6 +16,7 @@ import {
 
 interface FolderRoutinesSettings {
   routinesFolder: string;
+  hideRoutineNumbering: boolean;
   entriesProperty: string;
   storeDateFormat: string;
   subtasksProperty: string;
@@ -27,6 +29,7 @@ interface FolderRoutinesSettings {
 
 const DEFAULT_SETTINGS: FolderRoutinesSettings = {
   routinesFolder: "Routines",
+  hideRoutineNumbering: false,
   entriesProperty: "entries",
   storeDateFormat: "YYYY-MM-DD",
   subtasksProperty: "subtasks",
@@ -69,6 +72,12 @@ interface TimeSpan {
 
 type TimeSpanMap = Record<string, TimeSpan>;
 type EntryStateOverrides = Map<string, Map<string, boolean>>;
+
+interface TrackingResetResult {
+  filesCleared: number;
+  propertiesCleared: number;
+  failedFiles: string[];
+}
 
 function clampMinute(v: number): number {
   return Math.max(0, Math.min(DAY_MINUTES, Math.round(v)));
@@ -241,6 +250,59 @@ export default class FolderRoutinesPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  private trackingPropertyNames(): string[] {
+    return [
+      this.settings.entriesProperty,
+      this.settings.subtaskEntriesProperty,
+      this.settings.pixelCalendarProperty,
+      this.settings.pixelCalendarTasksProperty,
+      this.settings.pixelCalendarTimesProperty,
+    ].filter((name, index, names) => name.length > 0 && names.indexOf(name) === index);
+  }
+
+  async resetTrackingData(): Promise<TrackingResetResult> {
+    const properties = this.trackingPropertyNames();
+    const files = this.app.vault.getMarkdownFiles().filter((file) => {
+      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      return (
+        frontmatter != null &&
+        properties.some((property) =>
+          Object.prototype.hasOwnProperty.call(frontmatter, property)
+        )
+      );
+    });
+
+    let filesCleared = 0;
+    let propertiesCleared = 0;
+    const failedFiles: string[] = [];
+
+    for (const file of files) {
+      let removedFromFile = 0;
+      try {
+        await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+          for (const property of properties) {
+            if (!Object.prototype.hasOwnProperty.call(frontmatter, property))
+              continue;
+            delete frontmatter[property];
+            removedFromFile += 1;
+          }
+        });
+        if (removedFromFile > 0) {
+          filesCleared += 1;
+          propertiesCleared += removedFromFile;
+        }
+      } catch (error) {
+        failedFiles.push(file.path);
+        console.error(
+          `Folder Routines: failed to reset tracking data in ${file.path}`,
+          error
+        );
+      }
+    }
+
+    return { filesCleared, propertiesCleared, failedFiles };
+  }
+
   /* First minute the calendar shows, snapped down to a slot boundary. An
      unreadable setting falls back to midnight. */
   calendarStartMinutes(): number {
@@ -270,6 +332,12 @@ export default class FolderRoutinesPlugin extends Plugin {
     };
     walk(this.app.vault.getRoot());
     return out;
+  }
+
+  private displayName(name: string): string {
+    if (!this.settings.hideRoutineNumbering) return name;
+    const withoutNumbering = name.replace(/^\s*\d+[.)]\s+/, "");
+    return withoutNumbering || name;
   }
 
   /* ============================================================
@@ -554,7 +622,10 @@ export default class FolderRoutinesPlugin extends Plugin {
       section.addClass(`folder-routines-color-${colorIndex + 1}`);
       const tag = ("h" + Math.min(depth, 6)) as keyof HTMLElementTagNameMap;
       const header = section.createEl(tag, { cls: "folder-routines-heading" });
-      header.createSpan({ cls: "folder-routines-heading-title", text: sub.name });
+      header.createSpan({
+        cls: "folder-routines-heading-title",
+        text: this.displayName(sub.name),
+      });
       this.createProgress(header);
 
       const body = section.createDiv({ cls: "folder-routines-body" });
@@ -699,7 +770,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     itemEl.tabIndex = 0;
     this.wireSelection(itemEl);
     const label = itemEl.createEl("label", { cls: "folder-routines-label" });
-    if (index > 0) {
+    if (index > 0 && !this.settings.hideRoutineNumbering) {
       label.createSpan({
         cls: "folder-routines-index",
         text: String(index).padStart(2, "0"),
@@ -709,7 +780,10 @@ export default class FolderRoutinesPlugin extends Plugin {
       type: "checkbox",
     }) as HTMLInputElement;
     checkbox.classList.add("folder-routines-checkbox");
-    label.createSpan({ text: file.basename, cls: "folder-routines-text" });
+    label.createSpan({
+      text: this.displayName(file.basename),
+      cls: "folder-routines-text",
+    });
 
     if (subtasks.length === 0) {
       checkbox.classList.add("folder-routines-progress-checkbox");
@@ -1225,9 +1299,10 @@ export default class FolderRoutinesPlugin extends Plugin {
       }
       const { path, subtask } = parseRef(ref);
       const file = fileForPath(path);
-      const base = file
+      const rawBase = file
         ? file.basename
         : (path.split("/").pop() ?? path).replace(/\.md$/, "");
+      const base = this.displayName(rawBase);
       if (subtask != null) return { text: subtask, parent: base };
       return { text: base, parent: null };
     };
@@ -1558,7 +1633,10 @@ export default class FolderRoutinesPlugin extends Plugin {
       applyColor(chip, file.path);
       addChipCheckbox(chip, file.path);
       const info = chip.createDiv({ cls: "pixel-calendar-chip-info" });
-      info.createSpan({ cls: "pixel-calendar-chip-text", text: file.basename });
+      info.createSpan({
+        cls: "pixel-calendar-chip-text",
+        text: this.displayName(file.basename),
+      });
       const at = slotOfRef(file.path);
       if (at) {
         chip.addClass("is-scheduled");
@@ -1626,7 +1704,7 @@ export default class FolderRoutinesPlugin extends Plugin {
           cls: "folder-routines-collapse-icon",
           text: "▾",
         });
-        secHeader.createSpan({ text: sub.name });
+        secHeader.createSpan({ text: this.displayName(sub.name) });
         const body = section.createDiv({ cls: "pixel-calendar-side-body" });
         renderSideFolder(sub, body, depth + 1);
         secHeader.addEventListener("click", () => {
@@ -2008,13 +2086,15 @@ export default class FolderRoutinesPlugin extends Plugin {
     // one grid per subfolder (Fitness, Namaz, ...) plus root-level files
     const sections: { name: string; files: TFile[] }[] = [];
     const rootFiles = this.collectSectionFiles(root);
-    if (rootFiles.length) sections.push({ name: root.name, files: rootFiles });
+    if (rootFiles.length)
+      sections.push({ name: this.displayName(root.name), files: rootFiles });
     const subfolders = [...root.children]
       .filter((c): c is TFolder => c instanceof TFolder)
       .sort((a, b) => a.name.localeCompare(b.name));
     for (const sub of subfolders) {
       const files = this.collectSectionFiles(sub);
-      if (files.length) sections.push({ name: sub.name, files });
+      if (files.length)
+        sections.push({ name: this.displayName(sub.name), files });
     }
 
     if (sections.length === 0) {
@@ -2039,7 +2119,12 @@ export default class FolderRoutinesPlugin extends Plugin {
       const rows = section.files.map((file) => {
         const dates = this.getEntryDates(file, entryOverrides);
         const flags = dateStrs.map((ds) => dates.has(ds));
-        return { file, flags, done: flags.filter(Boolean).length };
+        return {
+          file,
+          name: this.displayName(file.basename),
+          flags,
+          done: flags.filter(Boolean).length,
+        };
       });
 
       const perDay = dateStrs.map(
@@ -2140,7 +2225,7 @@ export default class FolderRoutinesPlugin extends Plugin {
       rows.forEach((row) => {
         grid.createDiv({
           cls: "routine-stats-cell routine-stats-rowlabel",
-          text: row.file.basename,
+          text: row.name,
         });
         // length of the consecutive run of completed days ending at each index
         const runLen: number[] = [];
@@ -2180,8 +2265,8 @@ export default class FolderRoutinesPlugin extends Plugin {
           cell.setAttr(
             "aria-label",
             isRunEnd && streak > 1
-              ? `${row.file.basename} · ${ds} · ${streak} day streak`
-              : `${row.file.basename} · ${ds}`
+              ? `${row.name} · ${ds} · ${streak} day streak`
+              : `${row.name} · ${ds}`
           );
           cell.setAttr("role", "button");
           cell.tabIndex = 0;
@@ -2373,6 +2458,65 @@ export default class FolderRoutinesPlugin extends Plugin {
   }
 }
 
+class ResetTrackingDataModal extends Modal {
+  private plugin: FolderRoutinesPlugin;
+
+  constructor(app: App, plugin: FolderRoutinesPlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen(): void {
+    this.setTitle("Reset all tracking data?");
+    this.contentEl.createEl("p", {
+      text: "This permanently removes all completion history, subtask completion history, saved calendar plans, one-off calendar tasks, and custom calendar times from every Markdown file in this vault.",
+    });
+    this.contentEl.createEl("p", {
+      text: "Habit definitions, note content, and plugin settings are kept. This cannot be undone.",
+    });
+
+    let cancelButton: HTMLButtonElement | null = null;
+    new Setting(this.contentEl)
+      .addButton((button) => {
+        cancelButton = button.buttonEl;
+        button.setButtonText("Cancel").onClick(() => this.close());
+      })
+      .addButton((button) =>
+        button
+          .setButtonText("Reset tracking data")
+          .setWarning()
+          .onClick(async () => {
+            button.setDisabled(true).setButtonText("Resetting...");
+            if (cancelButton) cancelButton.disabled = true;
+            try {
+              const result = await this.plugin.resetTrackingData();
+              this.close();
+              if (result.failedFiles.length > 0) {
+                new Notice(
+                  `Folder Routines: cleared ${result.propertiesCleared} properties from ${result.filesCleared} files; ${result.failedFiles.length} files could not be updated. See the developer console.`
+                );
+              } else if (result.filesCleared === 0) {
+                new Notice("Folder Routines: no tracking data found.");
+              } else {
+                new Notice(
+                  `Folder Routines: cleared ${result.propertiesCleared} properties from ${result.filesCleared} files. Reopen affected notes to refresh their views.`
+                );
+              }
+            } catch (error) {
+              console.error("Folder Routines: failed to reset tracking data", error);
+              new Notice("Folder Routines: failed to reset tracking data.");
+              button.setDisabled(false).setButtonText("Reset tracking data");
+              if (cancelButton) cancelButton.disabled = false;
+            }
+          })
+      );
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 class FolderRoutinesSettingTab extends PluginSettingTab {
   plugin: FolderRoutinesPlugin;
 
@@ -2405,6 +2549,20 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
+
+    new Setting(containerEl)
+      .setName("Hide routine numbering")
+      .setDesc(
+        "Hide checklist indices and leading file or folder numbering such as '1. Meditation' across checklists, calendars, and stats. Names on disk are unchanged; reopen affected notes to apply."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.hideRoutineNumbering)
+          .onChange(async (value) => {
+            this.plugin.settings.hideRoutineNumbering = value;
+            await this.plugin.saveSettings();
+          })
+      );
 
     new Setting(containerEl)
       .setName("Entries property")
@@ -2521,5 +2679,17 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
+
+    new Setting(containerEl)
+      .setName("Reset all tracking data")
+      .setDesc(
+        "Permanently delete completion history and saved calendar data from every Markdown file in this vault."
+      )
+      .addButton((button) =>
+        button
+          .setButtonText("Reset tracking data")
+          .setWarning()
+          .onClick(() => new ResetTrackingDataModal(this.app, this.plugin).open())
+      );
   }
 }

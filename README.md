@@ -217,6 +217,7 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 ## Settings
 
 - **Routines folder** — the folder holding your routine notes, picked from a dropdown of every folder in the vault (default: `Routines`)
+- **Hide routine numbering** — hides checklist indices and leading file or folder numbering such as `1. Meditation` across the checklist, calendar, and stats without renaming anything on disk (default: off)
 - **Entries property** — frontmatter property updated when an item is checked (default: `entries`)
 - **Stored date format** — Moment format used for the date written into `entries` (default: `YYYY-MM-DD`)
 - **Subtasks property** — frontmatter property that lists a note's subtasks (default: `subtasks`)
@@ -225,6 +226,7 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 - **Pixel calendar tasks property** — frontmatter property in the daily note where one-off calendar tasks are stored (default: `pixelCalendarTasks`)
 - **Pixel calendar times property** — frontmatter property in the daily note where custom start/finish times are stored (default: `pixelCalendarTimes`)
 - **Calendar start time** — earliest half-hour slot the day plan shows; everything before it is hidden (default: `00:00`)
+- **Reset all tracking data** — after confirmation, permanently removes completion and subtask history plus saved calendar plans, one-off tasks, and custom times from every Markdown file; habit definitions, note content, and plugin settings are preserved
 
 ## Installation
 
