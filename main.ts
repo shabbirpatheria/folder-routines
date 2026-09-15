@@ -16,105 +16,28 @@ import {
 
 interface FolderRoutinesSettings {
   routinesFolder: string;
-  minimalChecklist: boolean;
   hideRoutineNumbering: boolean;
   entriesProperty: string;
   storeDateFormat: string;
   subtasksProperty: string;
   subtaskEntriesProperty: string;
-  pixelCalendarProperty: string;
-  pixelCalendarTasksProperty: string;
-  pixelCalendarTimesProperty: string;
-  calendarStartTime: string;
 }
 
 const DEFAULT_SETTINGS: FolderRoutinesSettings = {
   routinesFolder: "Routines",
-  minimalChecklist: false,
   hideRoutineNumbering: false,
   entriesProperty: "entries",
   storeDateFormat: "YYYY-MM-DD",
   subtasksProperty: "subtasks",
   subtaskEntriesProperty: "subtaskEntries",
-  pixelCalendarProperty: "pixelCalendarPlan",
-  pixelCalendarTasksProperty: "pixelCalendarTasks",
-  pixelCalendarTimesProperty: "pixelCalendarTimes",
-  calendarStartTime: "00:00",
 };
 
-const SLOT_MINUTES = 30;
-/* a habit occupies at least one whole slot, and grows a slot at a time */
-const MIN_DURATION = 30;
-const RESIZE_STEP = 30;
-/* at most two events sit side by side; the next one wraps to a new band */
-const MAX_COLUMNS = 2;
-const MAX_BANDS = 8;
-const DAY_MINUTES = 24 * 60;
 const SUBTASK_SEP = "::";
-
-/* One-off tasks live in the plan under a prefix that can never collide with a
-   vault path (":" is not a legal filename character on Windows/macOS). */
-const CUSTOM_REF_PREFIX = "custom:";
-
-type PlanMap = Record<string, string[]>;
-
-interface CustomTask {
-  title: string;
-  done: boolean;
-}
-
-type CustomTaskMap = Record<string, CustomTask>;
-
-/* Explicit start/finish for a scheduled ref, in minutes from midnight.
-   Absent means "the 30-minute slot it sits in". */
-interface TimeSpan {
-  start: number;
-  end: number;
-}
-
-type TimeSpanMap = Record<string, TimeSpan>;
-type EntryStateOverrides = Map<string, Map<string, boolean>>;
 
 interface TrackingResetResult {
   filesCleared: number;
   propertiesCleared: number;
   failedFiles: string[];
-}
-
-function clampMinute(v: number): number {
-  return Math.max(0, Math.min(DAY_MINUTES, Math.round(v)));
-}
-
-function formatHM(min: number): string {
-  const m = clampMinute(min);
-  const h = Math.floor(m / 60);
-  return (
-    String(h === 24 ? 24 : h).padStart(2, "0") +
-    ":" +
-    String(m % 60).padStart(2, "0")
-  );
-}
-
-function parseHM(text: unknown): number | null {
-  const s = String(text ?? "").trim();
-  const m = /^(\d{1,2}):(\d{2})$/.exec(s);
-  if (!m) return null;
-  const h = Number(m[1]);
-  const mm = Number(m[2]);
-  if (!Number.isFinite(h) || !Number.isFinite(mm) || mm > 59 || h > 24) return null;
-  return clampMinute(h * 60 + mm);
-}
-
-/* Largest slot boundary at or below a time, never past the final slot. */
-function snapToSlot(min: number): number {
-  const snapped =
-    Math.floor(Math.min(min, DAY_MINUTES - SLOT_MINUTES) / SLOT_MINUTES) *
-    SLOT_MINUTES;
-  return Math.max(0, snapped);
-}
-
-function slotKeyForMinutes(min: number): string {
-  return formatHM(snapToSlot(min));
 }
 
 /* Per-block registry of "apply this completion state to my UI" callbacks,
@@ -124,9 +47,8 @@ interface BlockSync {
   setters: Map<string, (checked: boolean) => void>;
 }
 
-/* Broadcast whenever a habit completion is written, so every rendered block
-   (checklist, calendar, stats) on any open note stays in sync without a
-   re-render of the whole page. */
+/* Broadcast whenever a habit completion is written, so every rendered
+  checklist stays in sync without a re-render of the whole page. */
 interface RoutineChangeEvent {
   dateStr: string;
   path: string;
@@ -139,42 +61,6 @@ interface RoutineChangeEvent {
 
 function makeRef(path: string, subtask?: string | null): string {
   return subtask != null && subtask !== "" ? path + SUBTASK_SEP + subtask : path;
-}
-
-function parseRef(ref: string): { path: string; subtask: string | null } {
-  const idx = ref.indexOf(SUBTASK_SEP);
-  if (idx === -1) return { path: ref, subtask: null };
-  return { path: ref.slice(0, idx), subtask: ref.slice(idx + SUBTASK_SEP.length) };
-}
-
-function isCustomRef(ref: string): boolean {
-  return ref.startsWith(CUSTOM_REF_PREFIX);
-}
-
-function makeCustomRef(id: string): string {
-  return CUSTOM_REF_PREFIX + id;
-}
-
-function customRefId(ref: string): string {
-  return ref.slice(CUSTOM_REF_PREFIX.length);
-}
-
-function newCustomTaskId(): string {
-  return (
-    Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6)
-  );
-}
-
-/* Slots from the start of the visible day through to midnight. Anything
-   earlier is simply not part of the grid. */
-function buildSlotKeys(startMin = 0): string[] {
-  const keys: string[] = [];
-  for (let m = snapToSlot(startMin); m < 24 * 60; m += SLOT_MINUTES) {
-    const h = Math.floor(m / 60);
-    const mm = m % 60;
-    keys.push(String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0"));
-  }
-  return keys;
 }
 
 function getDailyNoteFormat(app: App): string {
@@ -207,37 +93,11 @@ export default class FolderRoutinesPlugin extends Plugin {
       (source, el, ctx) => this.renderRoutines(el, ctx)
     );
 
-    this.registerMarkdownCodeBlockProcessor(
-      "routine-stats",
-      (source, el, ctx) => this.renderStats(source, el, ctx)
-    );
-
-    this.registerMarkdownCodeBlockProcessor(
-      "pixel-calendar",
-      (source, el, ctx) => this.renderPixelCalendar(el, ctx)
-    );
-
     this.addCommand({
       id: "insert-routines-block",
       name: "Insert routines checklist block",
       editorCallback: (editor: Editor, _view: MarkdownView) => {
         editor.replaceSelection("```routines\n```\n");
-      },
-    });
-
-    this.addCommand({
-      id: "insert-routine-stats-block",
-      name: "Insert routine stats board",
-      editorCallback: (editor: Editor, _view: MarkdownView) => {
-        editor.replaceSelection("```routine-stats\n```\n");
-      },
-    });
-
-    this.addCommand({
-      id: "insert-pixel-calendar-block",
-      name: "Insert pixel calendar block",
-      editorCallback: (editor: Editor, _view: MarkdownView) => {
-        editor.replaceSelection("```pixel-calendar\n```\n");
       },
     });
 
@@ -256,9 +116,6 @@ export default class FolderRoutinesPlugin extends Plugin {
     return [
       this.settings.entriesProperty,
       this.settings.subtaskEntriesProperty,
-      this.settings.pixelCalendarProperty,
-      this.settings.pixelCalendarTasksProperty,
-      this.settings.pixelCalendarTimesProperty,
     ].filter((name, index, names) => name.length > 0 && names.indexOf(name) === index);
   }
 
@@ -296,19 +153,13 @@ export default class FolderRoutinesPlugin extends Plugin {
       } catch (error) {
         failedFiles.push(file.path);
         console.error(
-          `Folder Routines: failed to reset tracking data in ${file.path}`,
+          `Habit Checklist: failed to reset tracking data in ${file.path}`,
           error
         );
       }
     }
 
     return { filesCleared, propertiesCleared, failedFiles };
-  }
-
-  /* First minute the calendar shows, snapped down to a slot boundary. An
-     unreadable setting falls back to midnight. */
-  calendarStartMinutes(): number {
-    return snapToSlot(parseHM(this.settings.calendarStartTime) ?? 0);
   }
 
   /* The configured routines folder, or null when it no longer exists. The
@@ -372,7 +223,7 @@ export default class FolderRoutinesPlugin extends Plugin {
       try {
         listener(e);
       } catch (err) {
-        console.error("Folder Routines: sync listener failed", err);
+        console.error("Habit Checklist: sync listener failed", err);
       }
     }
   }
@@ -555,7 +406,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     if (!root) {
       el.createDiv({
         cls: "folder-routines-error",
-        text: `Folder Routines: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`,
+        text: `Habit Checklist: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`,
       });
       return;
     }
@@ -564,37 +415,26 @@ export default class FolderRoutinesPlugin extends Plugin {
     if (!date) {
       el.createDiv({
         cls: "folder-routines-error",
-        text: "Folder Routines: could not parse a date from this note's filename (expected a daily note).",
+        text: "Habit Checklist: could not parse a date from this note's filename (expected a daily note).",
       });
       return;
     }
 
     const dateStr = date.format(this.settings.storeDateFormat || "YYYY-MM-DD");
-    const container = el.createDiv({ cls: "folder-routines" });
-    container.toggleClass(
-      "folder-routines-minimal",
-      this.settings.minimalChecklist
-    );
+    const container = el.createDiv({
+      cls: "folder-routines folder-routines-minimal",
+    });
 
     const section = container.createDiv({
       cls: "folder-routines-section folder-routines-root",
     });
-    const header = section.createEl("h2", { cls: "folder-routines-heading" });
-    header.createSpan({ cls: "folder-routines-heading-title", text: "Habits" });
-    this.createProgress(header);
-
     const body = section.createDiv({ cls: "folder-routines-body" });
     const sync: BlockSync = { id: this.nextBlockId(), setters: new Map() };
     await this.renderFolder(root, body, dateStr, 3, sync);
-    this.updateSectionProgress(section);
 
     this.registerBlockListener(el, ctx, (ev) => {
       if (ev.originId === sync.id || ev.dateStr !== dateStr) return;
       sync.setters.get(makeRef(ev.path, ev.subtask))?.(ev.checked);
-    });
-
-    header.addEventListener("click", () => {
-      section.toggleClass("is-collapsed", !section.hasClass("is-collapsed"));
     });
   }
 
@@ -649,37 +489,10 @@ export default class FolderRoutinesPlugin extends Plugin {
   private createProgress(header: HTMLElement) {
     const progress = header.createDiv({ cls: "folder-routines-progress" });
     const badge = progress.createDiv({ cls: "folder-routines-progress-badge" });
-    badge.createSpan({ cls: "folder-routines-progress-label", text: "QUESTS" });
+    badge.createSpan({ cls: "folder-routines-progress-label", text: "Progress" });
     badge.createSpan({ cls: "folder-routines-progress-count", text: "0/0" });
     const bar = progress.createDiv({ cls: "folder-routines-progress-bar" });
     bar.createDiv({ cls: "folder-routines-progress-fill" });
-  }
-  private onAnimationComplete(
-    element: HTMLElement,
-    animationName: string,
-    complete: () => void
-  ) {
-    let completed = false;
-    const finish = (event?: AnimationEvent) => {
-      if (
-        event &&
-        (event.target !== element || event.animationName !== animationName)
-      )
-        return;
-      if (completed) return;
-      completed = true;
-      element.removeEventListener("animationend", finish);
-      element.removeEventListener("animationcancel", finish);
-      complete();
-    };
-
-    element.addEventListener("animationend", finish);
-    element.addEventListener("animationcancel", finish);
-    const activeAnimations = window
-      .getComputedStyle(element)
-      .animationName.split(",")
-      .map((name) => name.trim());
-    if (!activeAnimations.includes(animationName)) finish();
   }
 
   private updateSectionProgress(section: HTMLElement) {
@@ -700,48 +513,8 @@ export default class FolderRoutinesPlugin extends Plugin {
     const ratio = total === 0 ? 0 : done / total;
     if (fill) fill.style.setProperty("--fr-progress", `${ratio * 100}%`);
 
-    const wasComplete = section.hasClass("is-complete");
     const isComplete = total > 0 && done === total;
     section.toggleClass("is-complete", isComplete);
-    if (isComplete && !wasComplete) {
-      section.addClass("is-just-completed");
-      const header = section.querySelector<HTMLElement>(
-        ":scope > .folder-routines-heading"
-      );
-      if (header) {
-        this.onAnimationComplete(header, "fr-section-flash", () =>
-          section.removeClass("is-just-completed")
-        );
-      } else {
-        section.removeClass("is-just-completed");
-      }
-      this.showQuestBanner(section);
-    }
-  }
-
-  private showQuestBanner(section: HTMLElement) {
-    const header = section.querySelector<HTMLElement>(
-      ":scope > .folder-routines-heading"
-    );
-    if (!header) return;
-    const banner = header.createDiv({
-      cls: "folder-routines-quest-banner",
-      text: "★ QUEST COMPLETE ★",
-    });
-    this.onAnimationComplete(banner, "fr-banner", () => banner.remove());
-  }
-
-  private showXpPopup(host: HTMLElement) {
-    const popup = host.createSpan({
-      cls: "folder-routines-xp-popup",
-      text: "+5 XP",
-    });
-    this.onAnimationComplete(popup, "fr-xp", () => popup.remove());
-  }
-
-  private getCategoryIcon(_name: string): string {
-    // Single retro default icon for every section.
-    return "◆";
   }
 
   private updateAncestorProgress(from: HTMLElement) {
@@ -809,7 +582,6 @@ export default class FolderRoutinesPlugin extends Plugin {
         try {
           await this.setEntry(file, dateStr, target);
           itemEl.toggleClass("is-checked", target);
-          if (target) this.showXpPopup(itemEl);
           this.emitRoutineChange({
             dateStr,
             path: file.path,
@@ -820,8 +592,8 @@ export default class FolderRoutinesPlugin extends Plugin {
             originId: sync?.id ?? "",
           });
         } catch (e) {
-          console.error("Folder Routines: failed to update frontmatter", e);
-          new Notice(`Folder Routines: failed to update ${file.basename}`);
+          console.error("Habit Checklist: failed to update frontmatter", e);
+          new Notice(`Habit Checklist: failed to update ${file.basename}`);
           checkbox.checked = !target;
         } finally {
           checkbox.disabled = false;
@@ -885,7 +657,6 @@ export default class FolderRoutinesPlugin extends Plugin {
             subtasks
           );
           subItem.toggleClass("is-checked", target);
-          if (target) this.showXpPopup(subItem);
           refreshParent();
           this.emitRoutineChange({
             dateStr,
@@ -897,8 +668,8 @@ export default class FolderRoutinesPlugin extends Plugin {
             originId: sync?.id ?? "",
           });
         } catch (e) {
-          console.error("Folder Routines: failed to update frontmatter", e);
-          new Notice(`Folder Routines: failed to update ${file.basename}`);
+          console.error("Habit Checklist: failed to update frontmatter", e);
+          new Notice(`Habit Checklist: failed to update ${file.basename}`);
           subCheckbox.checked = !target;
         } finally {
           setAllDisabled(false);
@@ -939,8 +710,8 @@ export default class FolderRoutinesPlugin extends Plugin {
           originId: sync?.id ?? "",
         });
       } catch (e) {
-        console.error("Folder Routines: failed to update frontmatter", e);
-        new Notice(`Folder Routines: failed to update ${file.basename}`);
+        console.error("Habit Checklist: failed to update frontmatter", e);
+        new Notice(`Habit Checklist: failed to update ${file.basename}`);
         checkbox.checked = !target;
       } finally {
         setAllDisabled(false);
@@ -949,1519 +720,6 @@ export default class FolderRoutinesPlugin extends Plugin {
     });
   }
 
-  /* ============================================================
-     Pixel calendar (```pixel-calendar```)
-     ============================================================ */
-
-  private loadPlan(file: TFile): PlanMap {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const raw = fm?.[this.settings.pixelCalendarProperty];
-    const out: PlanMap = {};
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-        out[k] = this.normalizeEntries(v);
-      }
-    }
-    return out;
-  }
-
-  private async savePlanState(
-    file: TFile,
-    plan: PlanMap,
-    tasks: CustomTaskMap,
-    spans: TimeSpanMap
-  ) {
-    const planProp = this.settings.pixelCalendarProperty;
-    const taskProp = this.settings.pixelCalendarTasksProperty;
-    const timeProp = this.settings.pixelCalendarTimesProperty;
-    const scheduled = new Set<string>();
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      const cleanPlan: PlanMap = {};
-      for (const [k, v] of Object.entries(plan)) {
-        if (Array.isArray(v) && v.length > 0) {
-          cleanPlan[k] = [...v];
-          for (const ref of v) scheduled.add(ref);
-        }
-      }
-      if (Object.keys(cleanPlan).length === 0) {
-        delete fm[planProp];
-      } else {
-        fm[planProp] = cleanPlan;
-      }
-
-      const cleanTasks: CustomTaskMap = {};
-      for (const [id, task] of Object.entries(tasks)) {
-        if (task && task.title.trim().length > 0) {
-          cleanTasks[id] = { title: task.title, done: task.done === true };
-        }
-      }
-      if (Object.keys(cleanTasks).length === 0) {
-        delete fm[taskProp];
-      } else {
-        fm[taskProp] = cleanTasks;
-      }
-
-      // Only persist spans that differ from the default single slot.
-      const cleanSpans: Record<string, { start: string; end: string }> = {};
-      for (const [ref, span] of Object.entries(spans)) {
-        if (!scheduled.has(ref) || !span) continue;
-        const isDefault =
-          span.start % SLOT_MINUTES === 0 &&
-          span.end - span.start === SLOT_MINUTES;
-        if (isDefault) continue;
-        cleanSpans[ref] = { start: formatHM(span.start), end: formatHM(span.end) };
-      }
-      if (Object.keys(cleanSpans).length === 0) {
-        delete fm[timeProp];
-      } else {
-        fm[timeProp] = cleanSpans;
-      }
-    });
-  }
-
-  private loadTimeSpans(file: TFile): TimeSpanMap {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const raw = fm?.[this.settings.pixelCalendarTimesProperty];
-    const out: TimeSpanMap = {};
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
-    for (const [ref, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-      const obj = value as Record<string, unknown>;
-      const start = parseHM(obj.start);
-      const end = parseHM(obj.end);
-      if (start == null || end == null) continue;
-      out[ref] = { start, end: Math.max(end, start + MIN_DURATION) };
-    }
-    return out;
-  }
-
-  /* One-off tasks for a single day, stored alongside the plan on the daily
-     note so they never touch the routine folder. */
-  private loadCustomTasks(file: TFile): CustomTaskMap {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const raw = fm?.[this.settings.pixelCalendarTasksProperty];
-    const out: CustomTaskMap = {};
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
-    for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (typeof value === "string") {
-        if (value.trim()) out[id] = { title: value, done: false };
-      } else if (value && typeof value === "object" && !Array.isArray(value)) {
-        const obj = value as Record<string, unknown>;
-        const title = obj.title == null ? "" : String(obj.title);
-        if (title.trim()) out[id] = { title, done: obj.done === true };
-      }
-    }
-    return out;
-  }
-
-  private collectHabitFiles(folder: TFolder, out: TFile[]) {
-    const children = [...folder.children].sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
-    for (const c of children) {
-      if (c instanceof TFile && c.extension === "md") out.push(c);
-      else if (c instanceof TFolder) this.collectHabitFiles(c, out);
-    }
-  }
-
-  private async renderPixelCalendar(
-    el: HTMLElement,
-    ctx: MarkdownPostProcessorContext
-  ) {
-    el.empty();
-
-    const root = this.routinesRoot();
-    if (!root) {
-      el.createDiv({
-        cls: "folder-routines-error",
-        text: `Folder Routines: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`,
-      });
-      return;
-    }
-
-    const date = this.getNoteDate(ctx.sourcePath);
-    if (!date) {
-      el.createDiv({
-        cls: "folder-routines-error",
-        text: "Folder Routines: could not parse a date from this note's filename (expected a daily note).",
-      });
-      return;
-    }
-
-    const noteFile = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-    if (!(noteFile instanceof TFile)) {
-      el.createDiv({
-        cls: "folder-routines-error",
-        text: "Folder Routines: could not resolve this note to save the plan.",
-      });
-      return;
-    }
-
-    const dateStr = date.format(this.settings.storeDateFormat || "YYYY-MM-DD");
-    const plan = this.loadPlan(noteFile);
-    const customTasks = this.loadCustomTasks(noteFile);
-    const spans = this.loadTimeSpans(noteFile);
-    const blockId = this.nextBlockId();
-
-    const habitFiles: TFile[] = [];
-    this.collectHabitFiles(root, habitFiles);
-
-    // Assign each habit the same section color the checklist uses so the
-    // calendar chips match. Subfolders are colored by sibling position
-    // (restarting under each parent); a habit inherits its deepest folder's color.
-    const colorByPath = new Map<string, number>();
-    const assignColors = (folder: TFolder, inherited: number) => {
-      const kids = [...folder.children].sort((a, b) =>
-        a.name.localeCompare(b.name)
-      );
-      const files = kids.filter(
-        (c): c is TFile => c instanceof TFile && c.extension === "md"
-      );
-      const subs = kids.filter((c): c is TFolder => c instanceof TFolder);
-      for (const f of files) if (inherited > 0) colorByPath.set(f.path, inherited);
-      subs.forEach((sub, i) =>
-        assignColors(sub, (i % FolderRoutinesPlugin.SECTION_COLORS) + 1)
-      );
-    };
-    assignColors(root, 0);
-    const applyColor = (elm: HTMLElement, path: string) => {
-      // Fall back to the checklist's default section color for root-level
-      // habits so a chip is never left on the reserved selection accent.
-      const c = colorByPath.get(path) ?? 1;
-      elm.addClass(`folder-routines-color-${c}`);
-    };
-
-    // Build completion state for this date, reconciling subtasks up front.
-    const done = new Set<string>();
-    const subtasksByPath = new Map<string, string[]>();
-    for (const f of habitFiles) {
-      const subs = this.getSubtasks(f);
-      subtasksByPath.set(f.path, subs);
-      if (subs.length > 0) {
-        const resolved = await this.reconcileSubtaskEntries(f, subs);
-        let allDone = true;
-        for (const s of subs) {
-          if ((resolved[s] ?? []).includes(dateStr)) done.add(makeRef(f.path, s));
-          else allDone = false;
-        }
-        if (allDone) done.add(f.path);
-      } else if (this.isChecked(f, dateStr)) {
-        done.add(f.path);
-      }
-    }
-
-    /* The grid starts at the configured time; earlier slots are left out
-       entirely, and events before it are clipped to the top (or dropped when
-       they finish before the day even begins). */
-    const dayStart = this.calendarStartMinutes();
-    const startRow = dayStart / SLOT_MINUTES;
-    const visibleStart = (min: number) => Math.max(min, dayStart);
-    const slotKeys = buildSlotKeys(dayStart);
-    const now = moment();
-    const isToday = date.isSame(now, "day");
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const currentSlotKey = (m: ReturnType<typeof moment>): string => {
-      const total =
-        m.hours() * 60 + Math.floor(m.minutes() / SLOT_MINUTES) * SLOT_MINUTES;
-      return pad(Math.floor(total / 60)) + ":" + pad(total % 60);
-    };
-
-    const fileForPath = (p: string): TFile | null => {
-      const f = this.app.vault.getAbstractFileByPath(p);
-      return f instanceof TFile ? f : null;
-    };
-
-    const slotOfRef = (ref: string): string | null => {
-      for (const k of Object.keys(plan)) {
-        if (plan[k].includes(ref)) return k;
-      }
-      return null;
-    };
-
-    const removeRefEverywhere = (ref: string) => {
-      for (const k of Object.keys(plan)) {
-        plan[k] = plan[k].filter((r) => r !== ref);
-        if (plan[k].length === 0) delete plan[k];
-      }
-    };
-
-    /* Unscheduling a one-off task deletes it: it exists only on the calendar. */
-    const discardRef = (ref: string) => {
-      removeRefEverywhere(ref);
-      delete spans[ref];
-      if (isCustomRef(ref)) delete customTasks[customRefId(ref)];
-    };
-
-    const placeRef = (ref: string, slotKey: string) => {
-      removeRefEverywhere(ref);
-      if (!plan[slotKey]) plan[slotKey] = [];
-      if (!plan[slotKey].includes(ref)) plan[slotKey].push(ref);
-    };
-
-    /* Effective start/finish of a scheduled ref: an explicit span when the
-       user set one, otherwise the 30-minute slot it was dropped in. */
-    const spanOf = (ref: string, slotKey: string): TimeSpan => {
-      const explicit = spans[ref];
-      if (explicit) return explicit;
-      const start = parseHM(slotKey) ?? 0;
-      return { start, end: start + SLOT_MINUTES };
-    };
-
-    const durationOf = (ref: string): number => {
-      const slotKey = slotOfRef(ref);
-      if (!slotKey) return SLOT_MINUTES;
-      const s = spanOf(ref, slotKey);
-      return s.end - s.start;
-    };
-
-    /* Move/resize: keeps the plan slot in sync with the precise start time. */
-    const setSpan = (ref: string, startMin: number, endMin: number) => {
-      const start = clampMinute(Math.min(startMin, DAY_MINUTES - MIN_DURATION));
-      const end = clampMinute(Math.max(endMin, start + MIN_DURATION));
-      spans[ref] = { start, end };
-      placeRef(ref, slotKeyForMinutes(start));
-    };
-
-    let saveChain: Promise<void> = Promise.resolve();
-    const persist = () => {
-      saveChain = saveChain
-        .then(() => this.savePlanState(noteFile, plan, customTasks, spans))
-        .catch((e) => {
-          console.error("Folder Routines: failed to save pixel calendar plan", e);
-          new Notice("Folder Routines: failed to save calendar plan");
-        });
-    };
-
-    const applyDone = (
-      path: string,
-      subtask: string | null,
-      target: boolean,
-      subs: string[]
-    ) => {
-      if (subtask != null) {
-        const ref = makeRef(path, subtask);
-        if (target) done.add(ref);
-        else done.delete(ref);
-        const allDone =
-          subs.length > 0 && subs.every((s) => done.has(makeRef(path, s)));
-        if (allDone) done.add(path);
-        else done.delete(path);
-      } else if (subs.length > 0) {
-        if (target) {
-          done.add(path);
-          for (const s of subs) done.add(makeRef(path, s));
-        } else {
-          done.delete(path);
-          for (const s of subs) done.delete(makeRef(path, s));
-        }
-      } else {
-        if (target) done.add(path);
-        else done.delete(path);
-      }
-    };
-
-    const setRefDone = async (ref: string, target: boolean) => {
-      if (isCustomRef(ref)) {
-        const task = customTasks[customRefId(ref)];
-        if (!task) return;
-        task.done = target;
-        persist();
-        return;
-      }
-      const { path, subtask } = parseRef(ref);
-      const file = fileForPath(path);
-      if (!file) return;
-      const subs = subtasksByPath.get(path) ?? [];
-      let parentChecked = target;
-      if (subtask != null) {
-        parentChecked = await this.setSubtaskEntry(
-          file,
-          subtask,
-          dateStr,
-          target,
-          subs
-        );
-      } else if (subs.length > 0) {
-        await this.setParentToggleAll(file, dateStr, target, subs);
-      } else {
-        await this.setEntry(file, dateStr, target);
-      }
-      applyDone(path, subtask, target, subs);
-      this.emitRoutineChange({
-        dateStr,
-        path,
-        subtask,
-        checked: target,
-        parentChecked,
-        subtasks: subs,
-        originId: blockId,
-      });
-    };
-
-    const refLabel = (ref: string): { text: string; parent: string | null } => {
-      if (isCustomRef(ref)) {
-        const task = customTasks[customRefId(ref)];
-        return { text: task ? task.title : "Missing task", parent: "TASK" };
-      }
-      const { path, subtask } = parseRef(ref);
-      const file = fileForPath(path);
-      const rawBase = file
-        ? file.basename
-        : (path.split("/").pop() ?? path).replace(/\.md$/, "");
-      const base = this.displayName(rawBase);
-      if (subtask != null) return { text: subtask, parent: base };
-      return { text: base, parent: null };
-    };
-
-    const makeDraggable = (elm: HTMLElement, ref: string) => {
-      elm.setAttr("draggable", "true");
-      elm.addEventListener("dragstart", (e: DragEvent) => {
-        if (e.dataTransfer) {
-          e.dataTransfer.setData("text/plain", ref);
-          e.dataTransfer.effectAllowed = "move";
-        }
-        elm.addClass("is-dragging");
-      });
-      elm.addEventListener("dragend", () => elm.removeClass("is-dragging"));
-    };
-
-    const wireDropZone = (zone: HTMLElement, onDrop: (ref: string) => void) => {
-      const over = (e: DragEvent) => {
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-        zone.addClass("is-drop-target");
-      };
-      zone.addEventListener("dragover", over);
-      zone.addEventListener("dragenter", over);
-      zone.addEventListener("dragleave", () => zone.removeClass("is-drop-target"));
-      zone.addEventListener("drop", (e: DragEvent) => {
-        e.preventDefault();
-        zone.removeClass("is-drop-target");
-        const ref = e.dataTransfer?.getData("text/plain");
-        if (ref) onDrop(ref);
-      });
-    };
-
-    const container = el.createDiv({ cls: "folder-routines pixel-calendar" });
-    const header = container.createDiv({ cls: "pixel-calendar-header" });
-    header.createSpan({ cls: "folder-routines-collapse-icon", text: "▼" });
-    header.createSpan({ cls: "pixel-calendar-title", text: "Day Plan" });
-    header.createSpan({
-      cls: "pixel-calendar-date",
-      text: date.format("dddd, MMMM D, YYYY"),
-    });
-    header.addEventListener("click", () => {
-      container.toggleClass(
-        "is-collapsed",
-        !container.hasClass("is-collapsed")
-      );
-    });
-
-    const layout = container.createDiv({ cls: "pixel-calendar-layout" });
-    const sideEl = layout.createDiv({ cls: "pixel-calendar-side" });
-    const gridWrap = layout.createDiv({ cls: "pixel-calendar-grid-wrap" });
-    const gridEl = gridWrap.createDiv({ cls: "pixel-calendar-grid" });
-
-    let refresh: () => void = () => {};
-    let openSideSection: string | null = null;
-
-    const isRefDone = (ref: string): boolean => {
-      if (isCustomRef(ref)) return customTasks[customRefId(ref)]?.done === true;
-      return done.has(ref);
-    };
-
-    const addChipCheckbox = (
-      host: HTMLElement,
-      ref: string,
-      chip: HTMLElement = host
-    ): HTMLInputElement => {
-      const checkbox = host.createEl("input", {
-        type: "checkbox",
-      }) as HTMLInputElement;
-      checkbox.checked = isRefDone(ref);
-      if (checkbox.checked) chip.addClass("is-done");
-      checkbox.addEventListener("click", (e) => e.stopPropagation());
-      checkbox.addEventListener("dblclick", (e) => e.stopPropagation());
-      checkbox.addEventListener("change", async () => {
-        const target = checkbox.checked;
-        checkbox.disabled = true;
-        try {
-          await setRefDone(ref, target);
-          refresh();
-        } catch (err) {
-          console.error("Folder Routines: failed to update frontmatter", err);
-          new Notice("Folder Routines: failed to update completion");
-          checkbox.checked = !target;
-          checkbox.disabled = false;
-        }
-      });
-      return checkbox;
-    };
-
-    /* Inline pixel-styled text field used to create or rename a one-off task. */
-    const openTaskInput = (
-      host: HTMLElement,
-      initial: string,
-      onCommit: (title: string) => void
-    ) => {
-      const wrap = host.createDiv({ cls: "pixel-calendar-task-input" });
-      const input = wrap.createEl("input", { type: "text" }) as HTMLInputElement;
-      input.value = initial;
-      input.placeholder = "Task name…";
-      input.setAttr("aria-label", "Task name");
-      let closed = false;
-      const finish = (commit: boolean) => {
-        if (closed) return;
-        closed = true;
-        const value = input.value.trim();
-        if (commit && value) onCommit(value);
-        else refresh();
-      };
-      input.addEventListener("keydown", (e: KeyboardEvent) => {
-        e.stopPropagation();
-        if (e.key === "Enter") {
-          e.preventDefault();
-          finish(true);
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          finish(false);
-        }
-      });
-      input.addEventListener("blur", () => finish(true));
-      input.addEventListener("click", (e) => e.stopPropagation());
-      input.addEventListener("dblclick", (e) => e.stopPropagation());
-      input.focus();
-      input.select();
-    };
-
-    const addTaskAt = (zone: HTMLElement, slotKey: string) => {
-      openTaskInput(zone, "", (title) => {
-        const id = newCustomTaskId();
-        customTasks[id] = { title, done: false };
-        placeRef(makeCustomRef(id), slotKey);
-        refresh();
-        persist();
-      });
-    };
-
-    /* ---- stretching & exact times ---- */
-
-    const rowHeightPx = (): number => {
-      // rows stretch to fit stacked events, so measure the unscaled ruler
-      const unit = gridEl.querySelector(
-        ".pixel-calendar-unit"
-      ) as HTMLElement | null;
-      const h = unit?.getBoundingClientRect().height ?? 0;
-      return h > 0 ? h : 0;
-    };
-
-    const snap = (mins: number) =>
-      Math.round(mins / RESIZE_STEP) * RESIZE_STEP;
-
-    /* Bottom drag handle: stretch the event over more time. */
-    const decorateEvent = (
-      chip: HTMLElement,
-      ref: string,
-      span: TimeSpan
-    ) => {
-      const handle = chip.createDiv({ cls: "pixel-calendar-event-handle" });
-      handle.setAttr("aria-label", "Drag to change duration");
-      handle.setAttr("title", "Drag to stretch");
-      handle.addEventListener("click", (e) => e.stopPropagation());
-      handle.addEventListener("dblclick", (e) => e.stopPropagation());
-      handle.addEventListener("pointerdown", (e: PointerEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const rowH = rowHeightPx();
-        if (!rowH) return;
-        const startY = e.clientY;
-        const startEnd = span.end;
-        let endMin = startEnd;
-        chip.addClass("is-resizing");
-        chip.setAttr("draggable", "false");
-        try {
-          handle.setPointerCapture(e.pointerId);
-        } catch (err) {
-          /* not supported */
-        }
-        const onMove = (ev: PointerEvent) => {
-          const deltaMin = ((ev.clientY - startY) / rowH) * SLOT_MINUTES;
-          endMin = clampMinute(
-            Math.max(span.start + MIN_DURATION, snap(startEnd + deltaMin))
-          );
-          chip.style.height = `calc(var(--fr-slot-h) * ${
-            (endMin - visibleStart(span.start)) / SLOT_MINUTES
-          } - 3px)`;
-        };
-        const onUp = () => {
-          handle.removeEventListener("pointermove", onMove);
-          handle.removeEventListener("pointerup", onUp);
-          handle.removeEventListener("pointercancel", onUp);
-          chip.removeClass("is-resizing");
-          if (endMin !== startEnd) {
-            setSpan(ref, span.start, endMin);
-            persist();
-          }
-          refresh();
-        };
-        handle.addEventListener("pointermove", onMove);
-        handle.addEventListener("pointerup", onUp);
-        handle.addEventListener("pointercancel", onUp);
-      });
-    };
-
-    const renderCustomChip = (
-      host: HTMLElement,
-      ref: string,
-      span: TimeSpan
-    ): HTMLElement => {
-      const id = customRefId(ref);
-      const task = customTasks[id];
-      const chip = host.createDiv({
-        cls: "pixel-calendar-chip pixel-calendar-slot-chip pixel-calendar-event is-custom",
-      });
-      makeDraggable(chip, ref);
-
-      if (!task) {
-        chip.addClass("is-missing");
-        chip.createSpan({
-          cls: "pixel-calendar-chip-text",
-          text: "Missing task",
-        });
-      } else {
-        const head = chip.createDiv({ cls: "pixel-calendar-event-head" });
-        addChipCheckbox(head, ref, chip);
-        const info = head.createDiv({ cls: "pixel-calendar-chip-info" });
-        const title = info.createSpan({
-          cls: "pixel-calendar-chip-text",
-          text: task.title,
-        });
-        info.createSpan({ cls: "pixel-calendar-chip-parent", text: "TASK" });
-        title.setAttr("title", "Double-click to rename");
-        const startRename = (e: MouseEvent) => {
-          const target = e.target as HTMLElement | null;
-          if (
-            target?.closest(
-              ".pixel-calendar-event-handle, .pixel-calendar-chip-remove"
-            )
-          )
-            return;
-          e.preventDefault();
-          e.stopPropagation();
-          chip.empty();
-          chip.addClass("is-editing");
-          chip.setAttr("draggable", "false");
-          openTaskInput(chip, task.title, (newTitle) => {
-            task.title = newTitle;
-            refresh();
-            persist();
-          });
-        };
-        chip.addEventListener("dblclick", startRename);
-        const remove = head.createEl("button", {
-          cls: "pixel-calendar-chip-remove",
-          text: "×",
-        });
-        remove.setAttr("aria-label", "Delete task");
-        remove.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          discardRef(ref);
-          refresh();
-          persist();
-        });
-        decorateEvent(chip, ref, span);
-      }
-      return chip;
-    };
-
-    const renderSlotChip = (
-      host: HTMLElement,
-      ref: string,
-      span: TimeSpan
-    ): HTMLElement => {
-      if (isCustomRef(ref)) return renderCustomChip(host, ref, span);
-
-      const { subtask, path } = parseRef(ref);
-      const file = fileForPath(path);
-      const chip = host.createDiv({
-        cls: "pixel-calendar-chip pixel-calendar-slot-chip pixel-calendar-event",
-      });
-      makeDraggable(chip, ref);
-      applyColor(chip, path);
-      if (subtask != null) chip.addClass("is-subtask");
-
-      if (!file) {
-        chip.addClass("is-missing");
-        chip.createSpan({
-          cls: "pixel-calendar-chip-text",
-          text: refLabel(ref).text,
-        });
-        return chip;
-      }
-
-      const head = chip.createDiv({ cls: "pixel-calendar-event-head" });
-      addChipCheckbox(head, ref, chip);
-      const info = head.createDiv({ cls: "pixel-calendar-chip-info" });
-      const lbl = refLabel(ref);
-      info.createSpan({ cls: "pixel-calendar-chip-text", text: lbl.text });
-      if (lbl.parent)
-        info.createSpan({
-          cls: "pixel-calendar-chip-parent",
-          text: lbl.parent,
-        });
-
-      const remove = head.createEl("button", {
-        cls: "pixel-calendar-chip-remove",
-        text: "×",
-      });
-      remove.setAttr("aria-label", "Remove from calendar");
-      remove.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        discardRef(ref);
-        refresh();
-        persist();
-      });
-
-      decorateEvent(chip, ref, span);
-      return chip;
-    };
-
-    const renderSideHabit = (file: TFile, containerEl: HTMLElement) => {
-      const subs = subtasksByPath.get(file.path) ?? [];
-      const wrap = containerEl.createDiv({ cls: "pixel-calendar-side-habit" });
-
-      const chip = wrap.createDiv({
-        cls: "pixel-calendar-chip pixel-calendar-side-chip",
-      });
-      makeDraggable(chip, file.path);
-      applyColor(chip, file.path);
-      addChipCheckbox(chip, file.path);
-      const info = chip.createDiv({ cls: "pixel-calendar-chip-info" });
-      info.createSpan({
-        cls: "pixel-calendar-chip-text",
-        text: this.displayName(file.basename),
-      });
-      const at = slotOfRef(file.path);
-      if (at) {
-        chip.addClass("is-scheduled");
-        const s = spanOf(file.path, at);
-        info.createSpan({
-          cls: "pixel-calendar-chip-time",
-          text: `${formatHM(s.start)}–${formatHM(s.end)}`,
-        });
-      }
-
-      if (subs.length > 0) {
-        const subWrap = wrap.createDiv({ cls: "pixel-calendar-side-subtasks" });
-        for (const name of subs) {
-          const sref = makeRef(file.path, name);
-          const sChip = subWrap.createDiv({
-            cls: "pixel-calendar-chip pixel-calendar-side-chip is-subtask",
-          });
-          makeDraggable(sChip, sref);
-          applyColor(sChip, file.path);
-          addChipCheckbox(sChip, sref);
-          const sInfo = sChip.createDiv({ cls: "pixel-calendar-chip-info" });
-          sInfo.createSpan({ cls: "pixel-calendar-chip-text", text: name });
-          const sAt = slotOfRef(sref);
-          if (sAt) {
-            sChip.addClass("is-scheduled");
-            const ss = spanOf(sref, sAt);
-            sInfo.createSpan({
-              cls: "pixel-calendar-chip-time",
-              text: `${formatHM(ss.start)}–${formatHM(ss.end)}`,
-            });
-          }
-        }
-      }
-    };
-
-    const renderSideFolder = (
-      folder: TFolder,
-      containerEl: HTMLElement,
-      depth: number
-    ) => {
-      const children = [...folder.children].sort((a, b) =>
-        a.name.localeCompare(b.name)
-      );
-      const files = children.filter(
-        (c): c is TFile => c instanceof TFile && c.extension === "md"
-      );
-      const subfolders = children.filter(
-        (c): c is TFolder => c instanceof TFolder
-      );
-
-      for (const file of files) renderSideHabit(file, containerEl);
-
-      const sections: HTMLElement[] = [];
-      subfolders.forEach((sub, i) => {
-        const colorIndex = i % FolderRoutinesPlugin.SECTION_COLORS;
-        const section = containerEl.createDiv({
-          cls: `pixel-calendar-side-section folder-routines-color-${colorIndex + 1}`,
-        });
-        sections.push(section);
-        if (openSideSection !== sub.path) section.addClass("is-collapsed");
-        const secHeader = section.createDiv({
-          cls: "pixel-calendar-side-heading",
-        });
-        secHeader.createSpan({
-          cls: "folder-routines-collapse-icon",
-          text: "▾",
-        });
-        secHeader.createSpan({ text: this.displayName(sub.name) });
-        const body = section.createDiv({ cls: "pixel-calendar-side-body" });
-        renderSideFolder(sub, body, depth + 1);
-        secHeader.addEventListener("click", () => {
-          const willOpen = section.hasClass("is-collapsed");
-          for (const s of sections) s.addClass("is-collapsed");
-          if (willOpen) {
-            section.removeClass("is-collapsed");
-            openSideSection = sub.path;
-          } else {
-            openSideSection = null;
-          }
-        });
-      });
-    };
-
-    /* Scheduled events float above the slot rows so one can span many rows.
-       At most two events sit side by side; a third wraps onto a new band
-       below them, and the rows it covers grow to make room. */
-    const layoutEvents = (layer: HTMLElement, rowEls: HTMLElement[]) => {
-      const items: { ref: string; span: TimeSpan }[] = [];
-      for (const key of Object.keys(plan)) {
-        for (const ref of plan[key]) {
-          const span = spanOf(ref, key);
-          // finished before the visible day starts: nothing to draw, but the
-          // tray still lists it with its time so it can be dragged back
-          if (span.end <= dayStart) continue;
-          items.push({ ref, span });
-        }
-      }
-      // longer events first so they claim a column for their whole run
-      items.sort(
-        (a, b) =>
-          a.span.start - b.span.start ||
-          b.span.end - b.span.start - (a.span.end - a.span.start)
-      );
-
-      /* Rows are numbered from the first visible slot, not from midnight. */
-      const firstRow = (min: number) =>
-        Math.floor(visibleStart(min) / SLOT_MINUTES) - startRow;
-      const lastRow = (min: number) =>
-        Math.max(0, Math.floor((min - 1) / SLOT_MINUTES) - startRow);
-      const rowStartMin = (row: number) => (row + startRow) * SLOT_MINUTES;
-
-      /* Cells an event covers, as row*MAX_BANDS+band keys. An event that
-         continues past a row fills that row to the bottom, and fills the
-         final row from the top down to its own band. */
-      const cellsOf = (r1: number, r2: number, band: number): number[] => {
-        const out: number[] = [];
-        if (r1 === r2) return [r1 * MAX_BANDS + band];
-        for (let b = band; b < MAX_BANDS; b++) out.push(r1 * MAX_BANDS + b);
-        for (let r = r1 + 1; r < r2; r++)
-          for (let b = 0; b < MAX_BANDS; b++) out.push(r * MAX_BANDS + b);
-        for (let b = 0; b <= band; b++) out.push(r2 * MAX_BANDS + b);
-        return out;
-      };
-
-      const taken: Set<number>[] = [];
-      for (let c = 0; c < MAX_COLUMNS; c++) taken.push(new Set<number>());
-      const placed: {
-        ref: string;
-        span: TimeSpan;
-        r1: number;
-        r2: number;
-        band: number;
-        col: number;
-        cells: number[];
-      }[] = [];
-
-      for (const it of items) {
-        const r1 = firstRow(it.span.start);
-        const r2 = Math.max(r1, lastRow(it.span.end));
-        let band = MAX_BANDS - 1;
-        let col = 0;
-        let cells = cellsOf(r1, r2, band);
-        let found = false;
-        for (let b = 0; b < MAX_BANDS && !found; b++) {
-          const candidate = cellsOf(r1, r2, b);
-          for (let c = 0; c < MAX_COLUMNS && !found; c++) {
-            if (candidate.some((k) => taken[c].has(k))) continue;
-            band = b;
-            col = c;
-            cells = candidate;
-            found = true;
-          }
-        }
-        for (const k of cells) taken[col].add(k);
-        placed.push({ ...it, r1, r2, band, col, cells });
-      }
-
-      // rows grow to fit the deepest band any of their events reaches
-      const units: number[] = rowEls.map(() => 1);
-      for (const p of placed) {
-        for (let r = p.r1; r <= p.r2; r++)
-          if (r < units.length) units[r] = Math.max(units[r], p.band + 1);
-      }
-      const rowTop: number[] = [];
-      let acc = 0;
-      for (let r = 0; r < units.length; r++) {
-        rowTop[r] = acc;
-        acc += units[r];
-        rowEls[r].style.setProperty("--fr-row-units", String(units[r]));
-      }
-
-      for (const p of placed) {
-        const chip = renderSlotChip(layer, p.ref, p.span);
-        // an event only shares its width when something sits beside it
-        const beside = placed.some(
-          (o) =>
-            o !== p &&
-            o.col !== p.col &&
-            o.cells.some((k) => p.cells.includes(k))
-        );
-        const top =
-          rowTop[p.r1] +
-          p.band +
-          (visibleStart(p.span.start) - rowStartMin(p.r1)) / SLOT_MINUTES;
-        const bottom =
-          rowTop[p.r2] +
-          p.band +
-          (p.span.end - rowStartMin(p.r2)) / SLOT_MINUTES;
-        chip.setAttr("data-start", formatHM(p.span.start));
-        chip.setAttr("data-end", formatHM(p.span.end));
-        chip.setAttr("data-band", String(p.band));
-        chip.style.top = `calc(var(--fr-slot-h) * ${top})`;
-        chip.style.height = `calc(var(--fr-slot-h) * ${bottom - top} - 3px)`;
-        chip.style.left = beside ? `${p.col * 50}%` : "0%";
-        chip.style.width = beside ? "50%" : "100%";
-        // let a drop land on the slot underneath a long event
-        wireDropZone(chip, (ref) => {
-          if (ref === p.ref) return;
-          placeRef(ref, slotKeyForMinutes(visibleStart(p.span.start)));
-          delete spans[ref];
-          refresh();
-          persist();
-        });
-      }
-    };
-
-    const rebuildGrid = () => {
-      const rowEls: HTMLElement[] = [];
-      for (const key of slotKeys) {
-        const row = gridEl.createDiv({ cls: "pixel-calendar-row" });
-        rowEls.push(row);
-        row.setAttr("data-slot", key);
-        if (key.endsWith(":00")) row.addClass("is-hour");
-        if (isToday && key === currentSlotKey(now)) row.addClass("is-now");
-        row.createDiv({ cls: "pixel-calendar-time", text: key });
-        const zone = row.createDiv({ cls: "pixel-calendar-slot" });
-        zone.setAttr("aria-label", `${key} — double-click to add a task`);
-        wireDropZone(zone, (ref) => {
-          const duration = durationOf(ref);
-          const start = parseHM(key) ?? 0;
-          setSpan(ref, start, start + duration);
-          refresh();
-          persist();
-        });
-        zone.addEventListener("dblclick", (e: MouseEvent) => {
-          const target = e.target as HTMLElement | null;
-          if (target?.closest(".pixel-calendar-chip")) return;
-          if (zone.querySelector(".pixel-calendar-task-input")) return;
-          e.preventDefault();
-          addTaskAt(zone, key);
-        });
-      }
-      // rows vary in height, so keep an unscaled ruler for the resize maths
-      gridEl.createDiv({ cls: "pixel-calendar-unit" });
-      layoutEvents(gridEl.createDiv({ cls: "pixel-calendar-events" }), rowEls);
-    };
-
-    refresh = () => {
-      const prevScroll = gridWrap.scrollTop;
-
-      sideEl.empty();
-      const sideHeader = sideEl.createDiv({ cls: "pixel-calendar-side-header" });
-      sideHeader.createSpan({
-        cls: "pixel-calendar-side-title",
-        text: "Habits",
-      });
-      sideHeader.createSpan({
-        cls: "pixel-calendar-side-hint",
-        text: "Double-click a time to add a task",
-      });
-      const sideList = sideEl.createDiv({ cls: "pixel-calendar-side-list" });
-      if (habitFiles.length === 0) {
-        sideList.createDiv({
-          cls: "pixel-calendar-side-empty",
-          text: `No habits found in "${this.settings.routinesFolder}".`,
-        });
-      } else {
-        renderSideFolder(root, sideList, 0);
-      }
-      wireDropZone(sideList, (ref) => {
-        discardRef(ref);
-        refresh();
-        persist();
-      });
-
-      gridEl.empty();
-      rebuildGrid();
-      gridWrap.scrollTop = prevScroll;
-    };
-
-    refresh();
-
-    this.registerBlockListener(el, ctx, (ev) => {
-      if (ev.originId === blockId || ev.dateStr !== dateStr) return;
-      if (!subtasksByPath.has(ev.path)) return;
-      applyDone(ev.path, ev.subtask, ev.checked, ev.subtasks);
-      refresh();
-    });
-
-    // Scroll to the current time (today) or a sensible default on first render.
-    // Either can fall outside the visible range, which just leaves us at the top.
-    const scrollKey = isToday
-      ? currentSlotKey(now)
-      : slotKeyForMinutes(visibleStart(8 * 60));
-    const targetRow = gridEl.querySelector(
-      `[data-slot="${scrollKey}"]`
-    ) as HTMLElement | null;
-    if (targetRow) gridWrap.scrollTop = Math.max(0, targetRow.offsetTop - 8);
-  }
-
-  /* ============================================================
-     Stats board (```routine-stats```)
-     ============================================================ */
-
-  private getEntryDates(
-    file: TFile,
-    overrides?: EntryStateOverrides
-  ): Set<string> {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const entries = new Set(
-      this.normalizeEntries(fm?.[this.settings.entriesProperty])
-    );
-    const fileOverrides = overrides?.get(file.path);
-    if (!fileOverrides) return entries;
-
-    for (const [dateStr, expected] of fileOverrides) {
-      if (entries.has(dateStr) === expected) {
-        fileOverrides.delete(dateStr);
-      } else if (expected) {
-        entries.add(dateStr);
-      } else {
-        entries.delete(dateStr);
-      }
-    }
-    if (fileOverrides.size === 0) overrides?.delete(file.path);
-    return entries;
-  }
-
-  private setEntryOverride(
-    overrides: EntryStateOverrides,
-    path: string,
-    dateStr: string,
-    expected: boolean,
-  ) {
-    let fileOverrides = overrides.get(path);
-    if (!fileOverrides) {
-      fileOverrides = new Map();
-      overrides.set(path, fileOverrides);
-    }
-    fileOverrides.set(dateStr, expected);
-  }
-
-  private collectSectionFiles(folder: TFolder): TFile[] {
-    return [...folder.children]
-      .filter((c): c is TFile => c instanceof TFile && c.extension === "md")
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  /* Longest run of consecutive true values. */
-  private bestStreak(flags: boolean[]): number {
-    let best = 0;
-    let run = 0;
-    for (const f of flags) {
-      run = f ? run + 1 : 0;
-      if (run > best) best = run;
-    }
-    return best;
-  }
-
-  /* Trailing run of true values ending at the last index (today). */
-  private currentStreak(flags: boolean[]): number {
-    let run = 0;
-    for (let i = flags.length - 1; i >= 0; i--) {
-      if (flags[i]) run++;
-      else break;
-    }
-    return run;
-  }
-
-  private rankFor(pct: number): string {
-    if (pct >= 95) return "S";
-    if (pct >= 85) return "A";
-    if (pct >= 70) return "B";
-    if (pct >= 50) return "C";
-    if (pct >= 25) return "D";
-    return "E";
-  }
-
-  private sparkline(perDay: number[], routines: number): string {
-    const glyphs = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-    if (routines <= 0) return "";
-    return perDay
-      .map((v) => {
-        const ratio = Math.max(0, Math.min(1, v / routines));
-        const idx =
-          v === 0 ? 0 : Math.max(1, Math.round(ratio * (glyphs.length - 1)));
-        return glyphs[idx];
-      })
-      .join("");
-  }
-
-  private async renderStats(
-    source: string,
-    el: HTMLElement,
-    ctx: MarkdownPostProcessorContext
-  ) {
-    el.empty();
-
-    const root = this.routinesRoot();
-    if (!root) {
-      el.createDiv({
-        cls: "folder-routines-error",
-        text: `Folder Routines: folder "${this.settings.routinesFolder}" not found. Set it in plugin settings.`,
-      });
-      return;
-    }
-
-    const container = el.createDiv({ cls: "folder-routines routine-stats" });
-
-    const toolbar = container.createDiv({ cls: "routine-stats-toolbar" });
-    toolbar.createSpan({ cls: "routine-stats-toolbar-title", text: "STATS" });
-    toolbar.createSpan({ cls: "routine-stats-toolbar-range", text: "21 DAYS" });
-
-    const boards = container.createDiv({ cls: "routine-stats-boards" });
-    const blockId = this.nextBlockId();
-    const entryOverrides: EntryStateOverrides = new Map();
-    this.renderStatsBoards(boards, root, 21, blockId, entryOverrides);
-
-    this.registerBlockListener(el, ctx, (ev) => {
-      if (ev.originId === blockId) return;
-      const file = this.app.vault.getAbstractFileByPath(ev.path);
-      if (!(file instanceof TFile)) return;
-      this.setEntryOverride(
-        entryOverrides,
-        file.path,
-        ev.dateStr,
-        ev.parentChecked
-      );
-      this.renderStatsBoards(
-        boards,
-        root,
-        21,
-        blockId,
-        entryOverrides
-      );
-    });
-  }
-
-  private renderStatsBoards(
-    host: HTMLElement,
-    root: TFolder,
-    days: number,
-    blockId: string,
-    entryOverrides: EntryStateOverrides
-  ) {
-    host.empty();
-
-    const today = moment().startOf("day");
-    const dateStrs: string[] = [];
-    const labels: string[] = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = today.clone().subtract(i, "days");
-      dateStrs.push(d.format(this.settings.storeDateFormat || "YYYY-MM-DD"));
-      labels.push(d.format("D"));
-    }
-
-    // one grid per subfolder (Fitness, Namaz, ...) plus root-level files
-    const sections: { name: string; files: TFile[] }[] = [];
-    const rootFiles = this.collectSectionFiles(root);
-    if (rootFiles.length)
-      sections.push({ name: this.displayName(root.name), files: rootFiles });
-    const subfolders = [...root.children]
-      .filter((c): c is TFolder => c instanceof TFolder)
-      .sort((a, b) => a.name.localeCompare(b.name));
-    for (const sub of subfolders) {
-      const files = this.collectSectionFiles(sub);
-      if (files.length)
-        sections.push({ name: this.displayName(sub.name), files });
-    }
-
-    if (sections.length === 0) {
-      host.createDiv({
-        cls: "folder-routines-error",
-        text: "Folder Routines: no routine notes found.",
-      });
-      return;
-    }
-
-    const weekdays = ["S", "M", "T", "W", "T", "F", "S"];
-
-    sections.forEach((section, sectionIndex) => {
-      const colorIndex = sectionIndex % FolderRoutinesPlugin.SECTION_COLORS;
-      const board = host.createDiv({
-        cls: `folder-routines-section routine-stats-board folder-routines-color-${
-          colorIndex + 1
-        }`,
-      });
-
-      /* ---- gather per-day / per-routine data ---- */
-      const rows = section.files.map((file) => {
-        const dates = this.getEntryDates(file, entryOverrides);
-        const flags = dateStrs.map((ds) => dates.has(ds));
-        return {
-          file,
-          name: this.displayName(file.basename),
-          flags,
-          done: flags.filter(Boolean).length,
-        };
-      });
-
-      const perDay = dateStrs.map(
-        (_, di) => rows.filter((r) => r.flags[di]).length
-      );
-      const sectionDone = rows.reduce((s, r) => s + r.done, 0);
-      const sectionTotal = section.files.length * days || 1;
-      const pct = Math.round((sectionDone / sectionTotal) * 100);
-      const rank = this.rankFor(pct);
-      const xp = sectionDone * 5;
-      const level = Math.max(1, Math.floor(xp / 100) + 1);
-
-      // section-level streaks: a "perfect day" = all routines done that day
-      const perfectDay = perDay.map((v) => v === section.files.length && v > 0);
-      const curStreak = this.currentStreak(perfectDay);
-      const bestStreak = Math.max(
-        ...rows.map((r) => this.bestStreak(r.flags)),
-        this.bestStreak(perfectDay)
-      );
-      const missed = sectionTotal - sectionDone;
-
-      /* ---- header with metadata ---- */
-      const header = board.createDiv({ cls: "folder-routines-heading routine-stats-head" });
-      header.createSpan({
-        cls: "folder-routines-banner",
-        text: this.getCategoryIcon(section.name),
-      });
-      const headMain = header.createDiv({ cls: "routine-stats-head-main" });
-      headMain.createSpan({
-        cls: "folder-routines-heading-title",
-        text: section.name,
-      });
-      const headMeta = headMain.createDiv({ cls: "routine-stats-head-meta" });
-      headMeta.createSpan({ cls: "routine-stats-lvl", text: `LV.${level}` });
-      headMeta.createSpan({ text: `🔥 ${curStreak}` });
-      headMeta.createSpan({ text: `${pct}%` });
-      header.createDiv({ cls: "routine-stats-rank", text: rank });
-
-      /* ---- summary stat bar ---- */
-      const summary = board.createDiv({ cls: "routine-stats-summary" });
-      const stat = (icon: string, label: string, value: string, mod = "") => {
-        const s = summary.createDiv({ cls: `routine-stats-stat ${mod}` });
-        s.createSpan({ cls: "routine-stats-stat-icon", text: icon });
-        const b = s.createDiv({ cls: "routine-stats-stat-body" });
-        b.createSpan({ cls: "routine-stats-stat-label", text: label });
-        b.createSpan({ cls: "routine-stats-stat-value", text: value });
-      };
-      stat("🔥", "BEST", String(bestStreak), "is-best");
-      stat("⚡", "STREAK", String(curStreak), "is-streak");
-      stat("🏆", "DONE", `${pct}%`, "is-done");
-      stat("⭐", "XP", `+${xp}`, "is-xp");
-
-      /* ---- completion HUD ---- */
-      const hud = board.createDiv({ cls: "routine-stats-hud" });
-      hud.createSpan({ cls: "routine-stats-hud-label", text: "COMPLETION" });
-      const hudBar = hud.createDiv({ cls: "routine-stats-hud-bar" });
-      const hudBlocks = 10;
-      const hudFilled = Math.round((pct / 100) * hudBlocks);
-      for (let i = 0; i < hudBlocks; i++) {
-        const blk = hudBar.createDiv({ cls: "routine-stats-hud-block" });
-        blk.toggleClass("is-filled", i < hudFilled);
-        blk.style.setProperty("--fr-blk", String(i));
-      }
-      hud.createSpan({ cls: "routine-stats-hud-pct", text: `${pct}%` });
-
-      /* ---- grid, week-grouped ---- */
-      const weeks = Math.ceil(days / 7);
-      const grid = board.createDiv({ cls: "routine-stats-grid" });
-      grid.style.setProperty("--fr-stats-days", String(days));
-      grid.style.setProperty("--fr-stats-weeks", String(weeks));
-      // build column template with a spacer column before each new week
-      const dayCols: string[] = [];
-      for (let di = 0; di < days; di++) {
-        if (di % 7 === 0 && di !== 0) dayCols.push("0.4rem");
-        dayCols.push("1.15rem");
-      }
-      grid.style.gridTemplateColumns = `max-content ${dayCols.join(
-        " "
-      )} auto`;
-
-      // day-of-week header row
-      grid.createDiv({ cls: "routine-stats-cell routine-stats-corner" });
-      dateStrs.forEach((ds, di) => {
-        if (di % 7 === 0 && di !== 0)
-          grid.createDiv({ cls: "routine-stats-spacer" });
-        const wd = moment(ds, this.settings.storeDateFormat || "YYYY-MM-DD").day();
-        const cell = grid.createDiv({
-          cls: "routine-stats-cell routine-stats-daylabel",
-          text: weekdays[wd],
-        });
-        if (di === days - 1) cell.addClass("is-today-col");
-      });
-      grid.createDiv({
-        cls: "routine-stats-cell routine-stats-daylabel routine-stats-total-head",
-        text: "Σ",
-      });
-
-      rows.forEach((row) => {
-        grid.createDiv({
-          cls: "routine-stats-cell routine-stats-rowlabel",
-          text: row.name,
-        });
-        // length of the consecutive run of completed days ending at each index
-        const runLen: number[] = [];
-        row.flags.forEach((done, di) => {
-          runLen[di] = done ? (di > 0 ? runLen[di - 1] : 0) + 1 : 0;
-        });
-        row.flags.forEach((done, di) => {
-          if (di % 7 === 0 && di !== 0)
-            grid.createDiv({ cls: "routine-stats-spacer" });
-          const cell = grid.createDiv({
-            cls: "routine-stats-cell routine-stats-day is-clickable",
-          });
-          cell.toggleClass("is-done", done);
-          if (di === days - 1) cell.addClass("is-today-col");
-
-          // streaks: join neighbouring completed days and label the run's end
-          const prevDone = di > 0 && row.flags[di - 1] === true;
-          const nextDone = row.flags[di + 1] === true;
-          const isRunEnd = done && !nextDone;
-          const streak = runLen[di];
-          if (done && (prevDone || nextDone)) cell.addClass("is-run");
-          if (done && prevDone) cell.addClass("is-run-cont");
-          if (done && nextDone) {
-            cell.addClass("is-run-link");
-            // a week spacer column sits between these two cells
-            if ((di + 1) % 7 === 0) cell.addClass("is-week-bridge");
-          }
-          if (isRunEnd && streak > 1) {
-            cell.addClass("is-run-end");
-            cell.createSpan({
-              cls: "routine-stats-run-count",
-              text: String(streak),
-            });
-            cell.setAttr("data-streak", String(streak));
-          }
-          const ds = dateStrs[di];
-          cell.setAttr(
-            "aria-label",
-            isRunEnd && streak > 1
-              ? `${row.name} · ${ds} · ${streak} day streak`
-              : `${row.name} · ${ds}`
-          );
-          cell.setAttr("role", "button");
-          cell.tabIndex = 0;
-
-          const toggle = async () => {
-            if (cell.hasClass("is-busy")) return;
-            cell.addClass("is-busy");
-            const target = !cell.hasClass("is-done");
-            // optimistic UI so the clicked cell reflects the change instantly
-            cell.toggleClass("is-done", target);
-            cell.toggleClass("is-missed", !target);
-            // streak joins are recomputed on re-render; drop the stale ones now
-            cell.empty();
-            for (const c of [
-              "is-run",
-              "is-run-cont",
-              "is-run-link",
-              "is-run-end",
-              "is-week-bridge",
-            ])
-              cell.removeClass(c);
-            try {
-              const subtasks = this.getSubtasks(row.file);
-              if (subtasks.length > 0) {
-                await this.setParentToggleAll(row.file, ds, target, subtasks);
-              } else {
-                await this.setEntry(row.file, ds, target);
-              }
-              this.emitRoutineChange({
-                dateStr: ds,
-                path: row.file.path,
-                subtask: null,
-                checked: target,
-                parentChecked: target,
-                subtasks,
-                originId: blockId,
-              });
-              this.setEntryOverride(
-                entryOverrides,
-                row.file.path,
-                ds,
-                target
-              );
-              this.renderStatsBoards(
-                host,
-                root,
-                days,
-                blockId,
-                entryOverrides
-              );
-            } catch (e) {
-              console.error("Folder Routines: failed to update entry", e);
-              new Notice(`Folder Routines: failed to update ${row.file.basename}`);
-              cell.toggleClass("is-done", !target);
-              cell.toggleClass("is-missed", target);
-              cell.removeClass("is-busy");
-            }
-          };
-          // Tap detection: only toggle if the pointer barely moved between
-          // down and up, so vertical/horizontal scrolling isn't hijacked.
-          let startX = 0;
-          let startY = 0;
-          let tracking = false;
-          const MOVE_TOLERANCE = 10;
-          cell.addEventListener("pointerdown", (evt: PointerEvent) => {
-            tracking = true;
-            startX = evt.clientX;
-            startY = evt.clientY;
-          });
-          cell.addEventListener("pointermove", (evt: PointerEvent) => {
-            if (!tracking) return;
-            if (
-              Math.abs(evt.clientX - startX) > MOVE_TOLERANCE ||
-              Math.abs(evt.clientY - startY) > MOVE_TOLERANCE
-            ) {
-              tracking = false; // treat as a scroll/drag, not a tap
-            }
-          });
-          cell.addEventListener("pointerup", (evt: PointerEvent) => {
-            if (!tracking) return;
-            tracking = false;
-            if (
-              Math.abs(evt.clientX - startX) <= MOVE_TOLERANCE &&
-              Math.abs(evt.clientY - startY) <= MOVE_TOLERANCE
-            ) {
-              toggle();
-            }
-          });
-          cell.addEventListener("pointercancel", () => {
-            tracking = false;
-          });
-          cell.addEventListener("keydown", (evt: KeyboardEvent) => {
-            if (evt.key === "Enter" || evt.key === " ") {
-              evt.preventDefault();
-              toggle();
-            }
-          });
-        });
-        grid.createDiv({
-          cls: "routine-stats-cell routine-stats-rowtotal",
-          text: `${row.done}/${days}`,
-        });
-      });
-
-      // start scrolled to the far right (most recent days / today)
-      grid.scrollLeft = grid.scrollWidth;
-
-      /* ---- weekly milestones ---- */
-      const milestones = board.createDiv({ cls: "routine-stats-weeks" });
-      for (let w = 0; w < weeks; w++) {
-        const start = w * 7;
-        const end = Math.min(start + 7, days);
-        const span = end - start;
-        const cellsInWeek = span * section.files.length || 1;
-        let weekDone = 0;
-        for (let di = start; di < end; di++) weekDone += perDay[di];
-        const wpct = Math.round((weekDone / cellsInWeek) * 100);
-        const stars = Math.max(0, Math.min(5, Math.round(wpct / 20)));
-        const wrank = this.rankFor(wpct);
-        const chip = milestones.createDiv({ cls: "routine-stats-week-chip" });
-        chip.toggleClass("is-perfect", wpct === 100);
-        chip.createSpan({
-          cls: "routine-stats-week-name",
-          text: `WK ${w + 1}`,
-        });
-        chip.createSpan({
-          cls: "routine-stats-week-stars",
-          text: "★".repeat(stars) + "☆".repeat(5 - stars),
-        });
-        chip.createSpan({
-          cls: "routine-stats-week-rank",
-          text: wpct === 100 ? "PERFECT" : wrank,
-        });
-      }
-
-      /* ---- sparkline trend ---- */
-      const trend = board.createDiv({ cls: "routine-stats-trend" });
-      trend.createSpan({ cls: "routine-stats-trend-label", text: "TREND" });
-      trend.createSpan({
-        cls: "routine-stats-trend-spark",
-        text: this.sparkline(perDay, section.files.length),
-      });
-
-      /* ---- footer stats grid ---- */
-      const footer = board.createDiv({ cls: "routine-stats-footer" });
-      const fstat = (label: string, value: string) => {
-        const f = footer.createDiv({ cls: "routine-stats-fstat" });
-        f.createSpan({ cls: "routine-stats-fstat-value", text: value });
-        f.createSpan({ cls: "routine-stats-fstat-label", text: label });
-      };
-      fstat("BEST STREAK", `${bestStreak}d`);
-      fstat("SUCCESS", `${pct}%`);
-      fstat("MISSED", `${missed}`);
-      fstat("XP GAINED", `+${xp}`);
-
-      /* ---- achievements ---- */
-      const achievements: { icon: string; text: string }[] = [];
-      if (sectionDone > 0)
-        achievements.push({ icon: "⭐", text: "First Clear" });
-      if (curStreak >= 7 || bestStreak >= 7)
-        achievements.push({ icon: "⚡", text: "7-Day Streak" });
-      if (perfectDay.some((p) => p))
-        achievements.push({ icon: "🏆", text: "Perfect Day" });
-      if (perfectDay.slice(-7).every((p) => p) && days >= 7)
-        achievements.push({ icon: "👑", text: "Perfect Week" });
-      if (pct === 100)
-        achievements.push({ icon: "💎", text: "100% Complete" });
-      if (achievements.length) {
-        const ach = board.createDiv({ cls: "routine-stats-achievements" });
-        achievements.forEach((a) => {
-          const badge = ach.createDiv({ cls: "routine-stats-badge" });
-          badge.createSpan({ cls: "routine-stats-badge-icon", text: a.icon });
-          badge.createSpan({ cls: "routine-stats-badge-text", text: a.text });
-        });
-      }
-
-      /* ---- legend ---- */
-      const legend = board.createDiv({ cls: "routine-stats-legend" });
-      const leg = (cls: string, text: string) => {
-        const l = legend.createDiv({ cls: "routine-stats-legend-item" });
-        l.createSpan({ cls: `routine-stats-legend-swatch ${cls}` });
-        l.createSpan({ text });
-      };
-      leg("is-done", "Done");
-      leg("is-missed", "Missed");
-      leg("is-today", "Today");
-      leg("is-perfect", "Perfect");
-    });
-  }
 }
 
 class ResetTrackingDataModal extends Modal {
@@ -2475,7 +733,7 @@ class ResetTrackingDataModal extends Modal {
   onOpen(): void {
     this.setTitle("Reset all tracking data?");
     this.contentEl.createEl("p", {
-      text: "This permanently removes all completion history, subtask completion history, saved calendar plans, one-off calendar tasks, and custom calendar times from every Markdown file in this vault.",
+      text: "This permanently removes habit and subtask completion history from every Markdown file in this vault.",
     });
     this.contentEl.createEl("p", {
       text: "Habit definitions, note content, and plugin settings are kept. This cannot be undone.",
@@ -2499,18 +757,18 @@ class ResetTrackingDataModal extends Modal {
               this.close();
               if (result.failedFiles.length > 0) {
                 new Notice(
-                  `Folder Routines: cleared ${result.propertiesCleared} properties from ${result.filesCleared} files; ${result.failedFiles.length} files could not be updated. See the developer console.`
+                  `Habit Checklist: cleared ${result.propertiesCleared} properties from ${result.filesCleared} files; ${result.failedFiles.length} files could not be updated. See the developer console.`
                 );
               } else if (result.filesCleared === 0) {
-                new Notice("Folder Routines: no tracking data found.");
+                new Notice("Habit Checklist: no tracking data found.");
               } else {
                 new Notice(
-                  `Folder Routines: cleared ${result.propertiesCleared} properties from ${result.filesCleared} files. Reopen affected notes to refresh their views.`
+                  `Habit Checklist: cleared ${result.propertiesCleared} properties from ${result.filesCleared} files. Reopen affected notes to refresh their views.`
                 );
               }
             } catch (error) {
-              console.error("Folder Routines: failed to reset tracking data", error);
-              new Notice("Folder Routines: failed to reset tracking data.");
+              console.error("Habit Checklist: failed to reset tracking data", error);
+              new Notice("Habit Checklist: failed to reset tracking data.");
               button.setDisabled(false).setButtonText("Reset tracking data");
               if (cancelButton) cancelButton.disabled = false;
             }
@@ -2557,30 +815,9 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Minimal habit checklist")
-      .setDesc(
-        "Switch habit checklists from the retro theme to a clean minimal design. The pixel calendar and statistics keep their current theme."
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.minimalChecklist)
-          .onChange(async (value) => {
-            this.plugin.settings.minimalChecklist = value;
-            await this.plugin.saveSettings();
-            document
-              .querySelectorAll<HTMLElement>(
-                ".folder-routines:not(.routine-stats):not(.pixel-calendar)"
-              )
-              .forEach((checklist) =>
-                checklist.toggleClass("folder-routines-minimal", value)
-              );
-          })
-      );
-
-    new Setting(containerEl)
       .setName("Hide routine numbering")
       .setDesc(
-        "Hide checklist indices and leading file or folder numbering such as '1. Meditation' across checklists, calendars, and stats. Names on disk are unchanged; reopen affected notes to apply."
+        "Hide checklist indices and leading file or folder numbering such as '1. Meditation'. Names on disk are unchanged; reopen affected notes to apply."
       )
       .addToggle((toggle) =>
         toggle
@@ -2645,72 +882,9 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Pixel calendar property")
-      .setDesc(
-        "Frontmatter property on the daily note where the pixel-calendar day plan is stored."
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("pixelCalendarPlan")
-          .setValue(this.plugin.settings.pixelCalendarProperty)
-          .onChange(async (value) => {
-            this.plugin.settings.pixelCalendarProperty =
-              value.trim() || "pixelCalendarPlan";
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Pixel calendar tasks property")
-      .setDesc(
-      "Frontmatter property in the daily note where one-off calendar tasks are stored."
-      )
-      .addText((text) =>
-      text
-        .setPlaceholder("pixelCalendarTasks")
-        .setValue(this.plugin.settings.pixelCalendarTasksProperty)
-        .onChange(async (value) => {
-          this.plugin.settings.pixelCalendarTasksProperty =
-            value.trim() || "pixelCalendarTasks";
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName("Pixel calendar times property")
-      .setDesc(
-        "Frontmatter property in the daily note where custom start/finish times are stored."
-      )
-      .addText((text) =>
-        text
-        .setPlaceholder("pixelCalendarTimes")
-        .setValue(this.plugin.settings.pixelCalendarTimesProperty)
-        .onChange(async (value) => {
-          this.plugin.settings.pixelCalendarTimesProperty =
-            value.trim() || "pixelCalendarTimes";
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName("Calendar start time")
-      .setDesc(
-        "Earliest time the day plan shows. Slots before it are hidden; reopen the note to apply."
-      )
-      .addDropdown((drop) => {
-        for (const key of buildSlotKeys()) drop.addOption(key, key);
-        drop
-          .setValue(formatHM(this.plugin.calendarStartMinutes()))
-          .onChange(async (value) => {
-            this.plugin.settings.calendarStartTime = value;
-            await this.plugin.saveSettings();
-          });
-      });
-
-    new Setting(containerEl)
       .setName("Reset all tracking data")
       .setDesc(
-        "Permanently delete completion history and saved calendar data from every Markdown file in this vault."
+        "Permanently delete habit and subtask completion history from every Markdown file in this vault."
       )
       .addButton((button) =>
         button

@@ -1,1949 +1,9 @@
 /* ============================================================
-   Folder Routines — 16-bit RPG menu (v2 polish)
-   Pokemon G/S · Chrono Trigger · FFVI · Zelda ALttP · EarthBound.
-   ============================================================ */
-
-.folder-routines {
-  /* ---- retro palette — layered elevation ladder ----
-     L0 app bg → L1 primary panel → L2 nested panel → L3 selection → L4 hover */
-  --fr-bg: #111118;          /* L0  app background            */
-  --fr-list-bg: #0d0d13;     /* recessed track (below L0)     */
-  --fr-panel-inset: #14141b; /* inset inside a panel          */
-  --fr-panel-alt: #16161f;   /* alt row / L1-               */
-  --fr-panel: #1b1b26;       /* L1  primary panel             */
-  --fr-window-inset: #1a1a24;/* recessed control well         */
-  --fr-window: #262633;      /* L2  nested panel / chips      */
-  --fr-window-hi: #2f2f3f;   /* L2+ raised nested surface     */
-  --fr-select: #353547;      /* L3  selected surface          */
-  --fr-hover: #40405a;       /* L4  hover surface             */
-  --fr-ink-light: #f4f1e6;
-  --fr-ink-dim: #bcb9ac;
-  --fr-ink-muted: #7d7a70;
-  --fr-line-dark: #0a0a0e;
-  --fr-line-hi: #55556a;
-  /* flat "not done" fill — stats day cells, checklist + calendar checkboxes */
-  --fr-missed: #2a2a33;
-  --fr-purple: #7c5cff;
-  --fr-purple-hi: #a88bff;
-  --fr-amber: #cea345;
-  --fr-amber-hi: #e6c877;
-  --fr-green: #47c95a;
-  --fr-green-hi: #7fe38d;
-  --fr-task: #33b3bd;
-  --fr-task-hi: #6fdfe7;
-
-  /* almost-imperceptible fractal grain, layered over solid panels */
-  --fr-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.22'/%3E%3C/svg%3E");
-  /* CRT scanlines — reusable dark-theme dither for panels + rows */
-  --fr-scanline: repeating-linear-gradient(
-    0deg,
-    rgba(255, 255, 255, 0.022) 0,
-    rgba(255, 255, 255, 0.022) 1px,
-    transparent 1px,
-    transparent 4px
-  );
-  /* combined CRT wash: grain + scanlines, for opaque surfaces */
-  --fr-crt: var(--fr-noise), var(--fr-scanline);
-
-  --fr-accent: var(--fr-purple);
-  --fr-accent-hi: var(--fr-purple-hi);
-
-  --fr-font: "Pixel Operator", "Courier New", "DejaVu Sans Mono", ui-monospace,
-    monospace;
-
-  /* reusable pixel bevel: top highlight + bottom shadow + dark border */
-  --fr-bevel: inset 2px 2px 0 0 rgba(255, 255, 255, 0.08),
-    inset -2px -2px 0 0 rgba(0, 0, 0, 0.45);
-
-  font-family: var(--fr-font);
-  display: grid;
-  gap: 1.55rem;
-  padding: 0.75rem;
-  color: var(--fr-ink-light);
-  background-color: var(--fr-bg);
-  /* fractal grain + subtle scanline/dither */
-  background-image: var(--fr-noise),
-    repeating-linear-gradient(
-      0deg,
-      rgba(255, 255, 255, 0.008) 0,
-      rgba(255, 255, 255, 0.008) 1px,
-      transparent 1px,
-      transparent 5px
-    );
-  background-size: 140px 140px, auto;
-  image-rendering: pixelated;
-  -webkit-font-smoothing: none;
-}
-
-.theme-light .folder-routines {
-  --fr-bg: #e6e0cd;
-  --fr-list-bg: #ded7c0;
-  --fr-panel: #fbf6e6;
-  --fr-panel-alt: #f3edd9;
-  --fr-panel-inset: #ece3c9;
-  --fr-window: #fff8e6;
-  --fr-window-hi: #fffdf3;
-  --fr-window-inset: #efe6cc;
-  --fr-select: #ece0bf;
-  --fr-hover: #fffdf3;
-  --fr-ink-light: #2a2620;
-  --fr-ink-dim: #4a463c;
-  --fr-ink-muted: #8a8574;
-  --fr-line-dark: #2a2620;
-  --fr-line-hi: #d8cda8;
-  --fr-missed: #ddd4bb;
-  --fr-task: #1f8e97;
-  --fr-task-hi: #4bc3cc;
-  --fr-bevel: inset 2px 2px 0 0 rgba(255, 255, 255, 0.6),
-    inset -2px -2px 0 0 rgba(0, 0, 0, 0.18);
-  --fr-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.12'/%3E%3C/svg%3E");
-  --fr-scanline: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.03) 0,
-    rgba(0, 0, 0, 0.03) 1px,
-    transparent 1px,
-    transparent 4px
-  );
-  --fr-crt: var(--fr-noise), var(--fr-scanline);
-  background-image: var(--fr-noise),
-    repeating-linear-gradient(
-      0deg,
-      rgba(0, 0, 0, 0.012) 0,
-      rgba(0, 0, 0, 0.012) 1px,
-      transparent 1px,
-      transparent 5px
-    );
-}
-
-/* ---- Section colors by order: Blue (routine), Amber (streaks),
-   Green (work), Red (fitness). Assigned per sibling position and restart
-   under each parent. Purple is reserved for selection / focus, never a
-   section color. ---- */
-.folder-routines-section {
-  --fr-accent: #5a95e0;
-  --fr-accent-hi: #8fc0f5;
-}
-.folder-routines-color-1 {
-  --fr-accent: #5a95e0;
-  --fr-accent-hi: #8fc0f5;
-}
-.folder-routines-color-2 {
-  --fr-accent: #cea345;
-  --fr-accent-hi: #e6c877;
-}
-.folder-routines-color-3 {
-  --fr-accent: #47c95a;
-  --fr-accent-hi: #7fe38d;
-}
-.folder-routines-color-4 {
-  --fr-accent: #e0574f;
-  --fr-accent-hi: #f58a83;
-}
-
-/* ============================================================
-   Section header — a distinct RPG window (Step 2, 10)
-   ============================================================ */
-.folder-routines-heading {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-  min-height: 3rem;
-  padding: 0.65rem 0.8rem;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.65rem;
-  cursor: pointer;
-  color: var(--fr-ink-light);
-  background: linear-gradient(180deg, var(--fr-window-hi) 0, var(--fr-window) 100%);
-  border: 3px solid var(--fr-line-dark);
-  border-radius: 0;
-  box-shadow:
-    inset 0 0 0 2px var(--fr-window),
-    inset 0 0 0 4px var(--fr-line-hi),
-    inset 3px 3px 0 0 rgba(255, 255, 255, 0.1),
-    inset -3px -3px 0 0 rgba(0, 0, 0, 0.5),
-    5px 5px 0 0 var(--fr-line-dark);
-  clip-path: polygon(
-    0 4px, 4px 4px, 4px 0,
-    calc(100% - 4px) 0, calc(100% - 4px) 4px, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px),
-    calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px)
-  );
-  user-select: none;
-  transition: transform 90ms steps(1);
-}
-.folder-routines-heading:hover {
-  transform: translate(-1px, -1px);
-}
-.folder-routines-heading:active {
-  transform: translate(1px, 1px);
-}
-.folder-routines-heading:focus-visible {
-  outline: 3px solid var(--fr-accent);
-  outline-offset: 3px;
-}
-
-/* occasional header glint (Step 14) */
-.folder-routines-heading::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -40%;
-  width: 30%;
-  height: 100%;
-  background: linear-gradient(
-    100deg,
-    transparent,
-    rgba(255, 255, 255, 0.14),
-    transparent
-  );
-  transform: skewX(-20deg);
-  pointer-events: none;
-  animation: fr-glint 9s steps(60) infinite;
-}
-
-/* ---- pixel dropdown arrow ► / ▼ ---- */
-.folder-routines-collapse-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  color: var(--fr-window-inset);
-  background: var(--fr-accent);
-  border: 1px solid var(--fr-line-dark);
-  box-shadow: none;
-  font-size: 0;
-}
-.folder-routines-collapse-icon::before {
-  content: "▼";
-  font-size: 0.85rem;
-}
-.folder-routines-section.is-collapsed .folder-routines-collapse-icon::before {
-  content: "►";
-}
-
-/* ---- category banner (pixel flag) — Step 6 ---- */
-.folder-routines-banner {
-  display: inline-grid;
-  place-items: center;
-  width: 1.95rem;
-  height: 1.95rem;
-  font-size: 1.02rem;
-  line-height: 1;
-  color: var(--fr-ink-light);
-  background: var(--fr-accent);
-  border: 1px solid var(--fr-line-dark);
-  box-shadow: none;
-  clip-path: polygon(0 0, 100% 0, 100% 72%, 78% 100%, 0 100%);
-}
-
-.folder-routines-heading-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 800;
-  font-size: 1.05rem;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  text-shadow: 2px 2px 0 var(--fr-line-dark);
-}
-.folder-routines:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-heading-title {
-  color: var(--fr-accent);
-}
-.theme-light .folder-routines-heading-title {
-  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
-}
-.folder-routines-root > .folder-routines-heading .folder-routines-heading-title {
-  font-size: 1.2rem;
-  letter-spacing: 0.2em;
-}
-.folder-routines:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-root
-  > .folder-routines-heading
-  .folder-routines-heading-title {
-  color: var(--fr-purple-hi);
-}
-.theme-light
-  .folder-routines:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-root
-  > .folder-routines-heading
-  .folder-routines-heading-title {
-  color: var(--fr-purple);
-}
-
-/* ============================================================
-   Progress — smaller HUD badge (Step 5) + chunky bar (Step 13)
-   ============================================================ */
-.folder-routines-progress {
-  display: grid;
-  grid-template-columns: auto auto;
-  align-items: center;
-  gap: 0.45rem;
-  justify-self: end;
-}
-.folder-routines-progress-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.28rem;
-  padding: 0.1rem 0.32rem;
-  background: var(--fr-window-inset);
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 1px 1px 0 0 rgba(0, 0, 0, 0.4);
-}
-.folder-routines-progress-label {
-  color: var(--fr-accent-hi);
-  font-size: 0.55rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  opacity: 0.85;
-}
-.theme-light .folder-routines-progress-label {
-  color: color-mix(in srgb, var(--fr-accent) 55%, #000);
-}
-.folder-routines-progress-count {
-  color: var(--fr-ink-dim);
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-}
-
-/* one flat continuous bar, like a merged streak run in the stats heatmap */
-.folder-routines-progress-bar {
-  position: relative;
-  overflow: hidden;
-  width: 9.6rem;
-  height: 0.9rem;
-  background: var(--fr-missed);
-  border: 1px solid var(--fr-line-dark);
-  box-shadow: none;
-}
-.folder-routines-progress-fill {
-  width: var(--fr-progress, 0%);
-  height: 100%;
-  background: var(--fr-accent);
-  transition: width 180ms steps(8);
-}
-/* a full bar caps out in the brighter accent, as a completed run does */
-.folder-routines-section.is-complete .folder-routines-progress-fill {
-  background: var(--fr-accent-hi);
-}
-.folder-routines:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-root
-  > .folder-routines-heading
-  .folder-routines-progress-fill {
-  background: var(--fr-purple-hi);
-}
-.theme-light
-  .folder-routines:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-root
-  > .folder-routines-heading
-  .folder-routines-progress-fill {
-  background: var(--fr-purple);
-}
-.folder-routines:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-root
-  > .folder-routines-heading
-  .folder-routines-progress-label {
-  color: var(--fr-purple-hi);
-}
-.theme-light
-  .folder-routines:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-root
-  > .folder-routines-heading
-  .folder-routines-progress-label {
-  color: var(--fr-purple);
-}
-.folder-routines-section.is-complete .folder-routines-progress-count::before {
-  content: "★ ";
-  color: var(--fr-amber-hi);
-}
-
-/* Quest Complete banner (Step 7) */
-.folder-routines-quest-banner {
-  position: absolute;
-  left: 50%;
-  top: -0.5rem;
-  transform: translate(-50%, -100%);
-  padding: 0.3rem 0.6rem;
-  color: var(--fr-line-dark);
-  background: linear-gradient(180deg, var(--fr-amber-hi), var(--fr-amber));
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: var(--fr-bevel), 3px 3px 0 0 var(--fr-line-dark);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  white-space: nowrap;
-  z-index: 5;
-  animation: fr-banner 1.6s steps(1) forwards;
-  pointer-events: none;
-}
-
-/* ============================================================
-   Section body — darker list well (Step 2), better indent (Step 9)
-   ============================================================ */
-.folder-routines-body {
-  position: relative;
-  display: grid;
-  gap: 0;
-  max-height: 9999px;
-  margin-top: 0.55rem;
-  margin-left: 0.55rem;
-  padding: 4px 4px 4px 1.15rem;
-  overflow: hidden;
-  opacity: 1;
-  background-color: var(--fr-list-bg);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.5);
-  transition: max-height 140ms steps(3), opacity 90ms steps(2);
-}
-/* neutral section line (matches calendar habit tray) */
-.folder-routines-body::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
-  background: var(--fr-line-hi);
-}
-.folder-routines-section.is-collapsed > .folder-routines-body {
-  max-height: 0;
-  margin-top: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-width: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-.folder-routines-root > .folder-routines-body {
-  margin-left: 0;
-  padding-left: 4px;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-.folder-routines-root > .folder-routines-body::before {
-  display: none;
-}
-.folder-routines-section .folder-routines-section {
-  margin-top: 1.4rem;
-}
-
-/* ============================================================
-   Task rows — denser inventory list (Step 1), depth (Step 10)
-   ============================================================ */
-.folder-routines-item {
-  position: relative;
-  margin: 0;
-  outline: none;
-  color: var(--fr-ink-light);
-  background-color: var(--fr-panel);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  border-top-width: 0;
-  box-shadow: inset 1px 1px 0 0 rgba(255, 255, 255, 0.06),
-    inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
-  transition: transform 80ms steps(1), background-color 80ms steps(1);
-}
-.folder-routines-item:first-child {
-  border-top-width: 2px;
-}
-.folder-routines-item:nth-child(even) {
-  background-color: var(--fr-panel-alt);
-}
-
-/* pixel selector cursor ► (Step 3) */
-.folder-routines-item::before {
-  content: "►";
-  position: absolute;
-  left: 0.25rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--fr-accent-hi);
-  font-size: 0.62rem;
-  opacity: 0;
-  transition: opacity 80ms steps(1);
-}
-.folder-routines-item:hover {
-  transform: translate(-1px, -1px);
-  background-color: var(--fr-hover);
-}
-.folder-routines-item:hover::before {
-  opacity: 0.5;
-}
-
-/* selected / active row — purple is the universal selection/focus cue */
-.folder-routines-item.is-selected {
-  background-color: var(--fr-select);
-  box-shadow: inset 0 0 0 2px var(--fr-purple),
-    inset 1px 1px 0 0 rgba(255, 255, 255, 0.08);
-  transform: translateX(2px);
-}
-.folder-routines-item.is-selected::before {
-  color: var(--fr-purple-hi);
-  opacity: 1;
-  animation: fr-cursor 900ms steps(2) infinite;
-}
-
-.folder-routines-label {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  min-height: 34px;
-  gap: 0.5rem;
-  padding: 0.16rem 2rem 0.16rem 1.05rem;
-  cursor: pointer;
-}
-.folder-routines-index {
-  flex: 0 0 auto;
-  color: var(--fr-ink-muted);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  min-width: 1.4rem;
-}
-.folder-routines-text {
-  min-width: 0;
-  color: var(--fr-ink-light);
-  font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1.25;
-}
-
-/* ============================================================
-   Checkbox — flat pixel cell, matching the stats day grid
-   ============================================================ */
-.folder-routines-checkbox,
-.folder-routines-label input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  position: relative;
-  flex: 0 0 auto;
-  width: 1.35rem;
-  height: 1.35rem;
-  margin: 0;
-  background: var(--fr-missed);
-  border: 1px solid var(--fr-line-dark);
-  border-radius: 0 !important;
-  box-shadow: none;
-  opacity: 0.55;
-  cursor: pointer;
-  transition: transform 80ms steps(1), filter 80ms steps(1),
-    background-color 90ms steps(1);
-}
-.folder-routines-checkbox:hover,
-.folder-routines-label input[type="checkbox"]:hover {
-  filter: brightness(1.25);
-  opacity: 1;
-}
-.folder-routines-checkbox:focus-visible,
-.folder-routines-label input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--fr-accent);
-  outline-offset: 2px;
-}
-.folder-routines-checkbox:active,
-.folder-routines-label input[type="checkbox"]:active {
-  transform: scale(0.88);
-}
-.folder-routines-checkbox:checked,
-.folder-routines-label input[type="checkbox"]:checked {
-  background: var(--fr-accent);
-  opacity: 1;
-  animation: fr-check-pop 130ms steps(3);
-}
-.folder-routines-checkbox:checked:hover,
-.folder-routines-label input[type="checkbox"]:checked:hover {
-  filter: brightness(1.3);
-}
-/* hard-edged pixel tick — no bevel, drawn in the cell's own dark line color.
-   the mask/background resets undo the core + theme checkmark, which is drawn
-   as a masked box tinted by --checkbox-marker-color (Minimal sets it to
-   transparent, which would otherwise erase our tick). */
-.folder-routines-checkbox::after,
-.folder-routines-label input[type="checkbox"]::after {
-  content: "" !important;
-  display: block !important;
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  width: 0.3rem;
-  height: 0.58rem;
-  background: none !important;
-  background-color: transparent !important;
-  -webkit-mask-image: none !important;
-  mask-image: none !important;
-  border: solid var(--fr-line-dark) !important;
-  border-width: 0 3px 3px 0 !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  opacity: 0;
-  transform: translate(-50%, -55%) rotate(45deg) !important;
-  /* no transition here: unchecking must clear the tick instantly, not fade it */
-  transition: none;
-}
-.folder-routines-checkbox:checked::after,
-.folder-routines-label input[type="checkbox"]:checked::after {
-  opacity: 1;
-  transition: opacity 90ms steps(2);
-}
-
-/* ============================================================
-   Completed rows — DONE stamp + XP popup (Step 7)
-   ============================================================ */
-.folder-routines-item.is-checked,
-.folder-routines-item.is-checked:nth-child(even) {
-  background-color: var(--fr-panel-inset);
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fr-green) 24%, transparent),
-    inset 1px 1px 0 0 rgba(255, 255, 255, 0.03),
-    inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
-}
-.folder-routines-item.is-checked .folder-routines-text {
-  color: var(--fr-ink-light);
-  opacity: 0.65;
-  text-decoration: line-through;
-}
-.folder-routines-item.is-checked .folder-routines-index {
-  color: var(--fr-green);
-}
-.folder-routines-item.is-checked::after {
-  content: "DONE";
-  position: absolute;
-  right: 0.5rem;
-  top: 50%;
-  color: var(--fr-green);
-  font-size: 0.54rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  padding: 1px 3px;
-  border: 2px solid var(--fr-green);
-  box-shadow: 2px 2px 0 0 rgba(0, 0, 0, 0.5);
-  transform: translateY(-50%) rotate(-8deg);
-  animation: fr-stamp 200ms steps(2);
-}
-
-.folder-routines-xp-popup {
-  position: absolute;
-  right: 2.6rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--fr-amber-hi);
-  font-size: 0.66rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-shadow: 1px 1px 0 var(--fr-line-dark);
-  pointer-events: none;
-  animation: fr-xp 900ms steps(6) forwards;
-  z-index: 4;
-}
-
-/* ============================================================
-   Subtasks — RPG menu tree, deeper indent (Step 4, 9)
-   ============================================================ */
-.folder-routines-subtasks {
-  position: relative;
-  display: grid;
-  gap: 0.12rem;
-  margin: 0.1rem 0 0.35rem 1.7rem;
-  padding-left: 0;
-}
-.folder-routines-subtask {
-  position: relative;
-  min-height: 34px;
-  margin: 0;
-  outline: none;
-  background: transparent;
-  transition: background-color 80ms steps(1);
-}
-.folder-routines-subtask:hover,
-.folder-routines-subtask:focus-within {
-  background: color-mix(in srgb, var(--fr-hover) 55%, transparent);
-}
-.folder-routines-subtask.is-selected {
-  background: var(--fr-select);
-  box-shadow: inset 0 0 0 2px var(--fr-purple);
-}
-.folder-routines-subtask .folder-routines-label {
-  min-height: 34px;
-  padding: 0.14rem 0.6rem 0.14rem 0;
-  gap: 0.5rem;
-}
-.folder-routines-tree {
-  flex: 0 0 auto;
-  width: 2.4rem;
-  color: var(--fr-accent);
-  font-size: 1rem;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  white-space: pre;
-}
-.folder-routines-tree::before {
-  content: "├── ";
-}
-.folder-routines-subtask.is-last .folder-routines-tree::before {
-  content: "└── ";
-}
-.folder-routines-subtask .folder-routines-text {
-  color: var(--fr-ink-dim);
-  font-size: 0.84rem;
-  font-weight: 600;
-}
-.folder-routines-subtask .folder-routines-checkbox,
-.folder-routines-subtask .folder-routines-label input[type="checkbox"] {
-  width: 1.1rem;
-  height: 1.1rem;
-}
-/* the tick shrinks with the box so it keeps the same visual margin */
-.folder-routines-subtask .folder-routines-checkbox::after,
-.folder-routines-subtask .folder-routines-label input[type="checkbox"]::after {
-  width: 0.24rem;
-  height: 0.46rem;
-  border-width: 0 2px 2px 0;
-}
-.folder-routines-subtask.is-checked .folder-routines-text {
-  color: var(--fr-ink-dim);
-  opacity: 0.65;
-  text-decoration: line-through;
-}
-
-/* ============================================================
-   Error window
-   ============================================================ */
-.folder-routines-error {
-  padding: 0.7rem 0.85rem;
-  color: #ff8880;
-  background: var(--fr-panel);
-  border: 3px solid var(--fr-line-dark);
-  box-shadow: inset 0 0 0 2px #e0574f, 4px 4px 0 0 var(--fr-line-dark);
-  font-family: var(--fr-font);
-  font-size: 0.82rem;
-  letter-spacing: 0.03em;
-}
-
-/* ============================================================
-   Animations
-   ============================================================ */
-@keyframes fr-check-pop {
-  0% { transform: scale(0.7); }
-  50% { transform: scale(1.22); }
-  100% { transform: scale(1); }
-}
-@keyframes fr-block-in {
-  0% { transform: scale(0.6); }
-  60% { transform: scale(1.15); }
-  100% { transform: scale(1); }
-}
-@keyframes fr-stamp {
-  0% { transform: translateY(-50%) rotate(-8deg) scale(1.8); opacity: 0; }
-  60% { transform: translateY(-50%) rotate(-8deg) scale(0.9); opacity: 1; }
-  100% { transform: translateY(-50%) rotate(-8deg) scale(1); }
-}
-@keyframes fr-xp {
-  0% { opacity: 0; transform: translateY(-50%); }
-  25% { opacity: 1; transform: translateY(-120%); }
-  100% { opacity: 0; transform: translateY(-260%); }
-}
-@keyframes fr-cursor {
-  0%, 100% { transform: translateY(-50%) translateX(0); }
-  50% { transform: translateY(-50%) translateX(2px); }
-}
-@keyframes fr-banner {
-  0% { opacity: 0; transform: translate(-50%, -80%) scale(0.8); }
-  15% { opacity: 1; transform: translate(-50%, -100%) scale(1); }
-  80% { opacity: 1; transform: translate(-50%, -100%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -120%) scale(1); }
-}
-@keyframes fr-glint {
-  0%, 92% { left: -40%; }
-  97% { left: 130%; }
-  100% { left: 130%; }
-}
-@keyframes fr-section-flash {
-  0%, 100% { filter: brightness(1); }
-  25%, 75% { filter: brightness(1.55) saturate(1.3); }
-  50% { filter: brightness(1); }
-}
-@keyframes fr-slot-pulse {
-  0%, 100% {
-    box-shadow: inset 0 0 0 2px var(--fr-purple);
-    background-color: color-mix(in srgb, var(--fr-purple) 16%, transparent);
-  }
-  50% {
-    box-shadow: inset 0 0 0 2px var(--fr-purple-hi);
-    background-color: color-mix(in srgb, var(--fr-purple) 30%, transparent);
-  }
-}
-.folder-routines-section.is-just-completed > .folder-routines-heading {
-  animation: fr-section-flash 500ms steps(1) 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .folder-routines *,
-  .folder-routines *::before,
-  .folder-routines *::after {
-    animation: none !important;
-    transition: none !important;
-  }
-}
-
-/* ============================================================
-   Stats screen (```routine-stats```) — JRPG status page
-   ============================================================ */
-.routine-stats {
-  /* semantic colors */
-  --fr-done: #47c95a;
-  --fr-done-hi: #7fe38d;
-  --fr-today: #e8c14a;
-  --fr-today-hi: #ffe27a;
-  --fr-perfect: #a88bff;
-  --fr-streak: #f0913a;
-  gap: 1.2rem;
-}
-
-.routine-stats-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-  padding: 0.5rem 0.7rem;
-  background-color: var(--fr-panel);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 1px 1px 0 0 rgba(255, 255, 255, 0.06),
-    inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
-}
-.routine-stats-toolbar-title {
-  font-weight: 800;
-  font-size: 0.95rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  text-shadow: 2px 2px 0 var(--fr-line-dark);
-}
-.theme-light .routine-stats-toolbar-title {
-  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
-}
-.routine-stats-toolbar-range {
-  padding: 0.28rem 0.55rem;
-  color: var(--fr-line-dark);
-  background: var(--fr-accent);
-  border: 2px solid var(--fr-line-dark);
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-.routine-stats-boards {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1.6rem;
-}
-
-.routine-stats-board {
-  min-width: 0;
-  padding: 0.6rem;
-  background-color: var(--fr-list-bg);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.5);
-}
-
-/* ---- header w/ metadata + rank badge ---- */
-.routine-stats-head {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  margin-bottom: 0.55rem;
-}
-.routine-stats-head-main {
-  display: grid;
-  gap: 0.12rem;
-  min-width: 0;
-}
-.routine-stats-head-meta {
-  display: flex;
-  gap: 0.55rem;
-  color: var(--fr-ink-dim);
-  font-size: 0.6rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
-.routine-stats-lvl {
-  color: var(--fr-accent-hi);
-}
-.routine-stats-rank {
-  display: grid;
-  place-items: center;
-  width: 1.9rem;
-  height: 1.9rem;
-  color: var(--fr-line-dark);
-  background: var(--fr-today);
-  border: 2px solid var(--fr-line-dark);
-  font-size: 1.05rem;
-  font-weight: 800;
-}
-
-/* ---- summary stat bar ---- */
-.routine-stats-summary {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.4rem;
-  margin-bottom: 0.55rem;
-}
-.routine-stats-stat {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.4rem;
-  background-color: var(--fr-panel);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 1px 1px 0 0 rgba(255, 255, 255, 0.06),
-    inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
-}
-.routine-stats-stat-icon {
-  font-size: 0.85rem;
-  line-height: 1;
-}
-.routine-stats-stat-body {
-  display: grid;
-  min-width: 0;
-}
-.routine-stats-stat-label {
-  color: var(--fr-ink-muted);
-  font-size: 0.5rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-.routine-stats-stat-value {
-  color: var(--fr-ink-light);
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-.routine-stats-stat.is-best .routine-stats-stat-value {
-  color: var(--fr-streak);
-}
-.routine-stats-stat.is-streak .routine-stats-stat-value {
-  color: var(--fr-today-hi);
-}
-.routine-stats-stat.is-done .routine-stats-stat-value {
-  color: var(--fr-done-hi);
-}
-.routine-stats-stat.is-xp .routine-stats-stat-value {
-  color: var(--fr-perfect);
-}
-
-/* ---- completion HUD ---- */
-.routine-stats-hud {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.6rem;
-  padding: 0.4rem 0.5rem;
-  background-color: var(--fr-panel-inset);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.45);
-}
-.routine-stats-hud-label {
-  color: var(--fr-ink-muted);
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-}
-.routine-stats-hud-bar {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 2px;
-  flex: 1;
-}
-.routine-stats-hud-block {
-  height: 0.8rem;
-  background: var(--fr-window-inset);
-  border: 1px solid var(--fr-line-dark);
-}
-.routine-stats-hud-block.is-filled {
-  background: var(--fr-accent);
-  animation: fr-block-in 120ms steps(2) backwards;
-  animation-delay: calc(var(--fr-blk) * 45ms);
-}
-.routine-stats-hud-pct {
-  color: var(--fr-accent-hi);
-  font-size: 0.92rem;
-  font-weight: 800;
-  text-shadow: 1px 1px 0 var(--fr-line-dark);
-  min-width: 2.4rem;
-  text-align: right;
-}
-
-/* ---- the grid ---- */
-.routine-stats-grid {
-  display: grid;
-  grid-template-columns:
-    max-content
-    repeat(var(--fr-stats-days), 1.15rem)
-    auto;
-  justify-content: start;
-  gap: 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 6px;
-  touch-action: pan-x pan-y;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: var(--fr-accent) var(--fr-window-inset);
-}
-.routine-stats-grid::-webkit-scrollbar {
-  height: 8px;
-}
-.routine-stats-grid::-webkit-scrollbar-track {
-  background: var(--fr-window-inset);
-  border: 1px solid var(--fr-line-dark);
-}
-.routine-stats-grid::-webkit-scrollbar-thumb {
-  background: var(--fr-accent);
-  border: 1px solid var(--fr-line-dark);
-}
-.routine-stats-cell {
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  min-height: 1.3rem;
-  min-width: 0;
-  font-size: 0.66rem;
-  font-weight: 700;
-}
-.routine-stats-corner {
-  position: sticky;
-  left: 0;
-  z-index: 4;
-  background-color: var(--fr-list-bg);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  box-shadow: 2px 0 0 0 var(--fr-line-dark);
-}
-.routine-stats-daylabel {
-  color: var(--fr-ink-muted);
-  font-size: 0.54rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  opacity: 0.7;
-}
-/* week spacer column between 7-day groups */
-.routine-stats-spacer {
-  width: 0.4rem;
-  min-width: 0.4rem;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  pointer-events: none;
-}
-/* today's column highlight */
-.routine-stats-daylabel.is-today-col {
-  position: relative;
-  color: var(--fr-today-hi);
-  opacity: 1;
-}
-.routine-stats-daylabel.is-today-col::after {
-  content: "\25BC";
-  position: absolute;
-  top: -0.7rem;
-  font-size: 0.5rem;
-  color: var(--fr-today);
-  animation: fr-today-bob 900ms steps(2) infinite;
-}
-.routine-stats-total-head {
-  color: var(--fr-accent-hi);
-  opacity: 1;
-}
-.routine-stats-rowlabel {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-self: stretch;
-  align-self: stretch;
-  height: 100%;
-  padding-right: 0.7rem;
-  color: var(--fr-ink-light);
-  font-size: 0.76rem;
-  font-weight: 600;
-  white-space: nowrap;
-  /* fully opaque plate that always covers the text on top of the cells */
-  background-color: var(--fr-list-bg);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  box-shadow: 2px 0 0 0 var(--fr-line-dark);
-}
-.routine-stats-day {
-  position: relative;
-  width: 1.15rem;
-  height: 1.15rem;
-  background: var(--fr-missed);
-  border: 1px solid var(--fr-line-dark);
-  opacity: 0.55;
-  transition: transform 80ms steps(1), filter 80ms steps(1);
-}
-.routine-stats-day:hover {
-  transform: scale(1.15);
-  filter: brightness(1.25);
-  opacity: 1;
-}
-.routine-stats-day.is-done {
-  background: var(--fr-accent);
-  opacity: 1;
-}
-.routine-stats-day.is-clickable {
-  cursor: pointer;
-}
-.routine-stats-day.is-clickable:hover {
-  transform: scale(1.2);
-  filter: brightness(1.3);
-  opacity: 1;
-  box-shadow: 0 0 0 2px var(--fr-accent-hi);
-}
-.routine-stats-day.is-clickable:focus-visible {
-  outline: 2px solid var(--fr-accent);
-  outline-offset: 2px;
-}
-.routine-stats-day.is-busy {
-  opacity: 0.4;
-  cursor: progress;
-}
-.routine-stats-day.is-today-col {
-  opacity: 1;
-}
-
-/* ---- streaks: consecutive completed days merge into one pixel bar ---- */
-/* drop the facing edges so a run reads as a single outlined bar */
-.routine-stats-day.is-run-link {
-  border-right-color: transparent;
-}
-.routine-stats-day.is-run-cont {
-  border-left-color: transparent;
-}
-/* fill the grid gap (or the wider week spacer) between two joined days */
-.routine-stats-day.is-run-link::after {
-  content: "";
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  left: 100%;
-  width: var(--fr-run-gap, 4px);
-  background: var(--fr-accent);
-  border-top: 1px solid var(--fr-line-dark);
-  border-bottom: 1px solid var(--fr-line-dark);
-  pointer-events: none;
-}
-.routine-stats-day.is-run-link.is-week-bridge {
-  --fr-run-gap: calc(0.4rem + 6px);
-}
-/* the run ends in a brighter cap carrying the streak length */
-.routine-stats-day.is-run-end {
-  z-index: 2;
-  background: var(--fr-accent-hi);
-}
-.routine-stats-run-count {
-  color: var(--fr-line-dark);
-  font-size: 0.58rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  line-height: 1;
-  pointer-events: none;
-}
-/* scaling a joined day would tear the bar apart — outline it instead */
-.routine-stats-day.is-run:hover,
-.routine-stats-day.is-run.is-clickable:hover {
-  transform: none;
-  filter: brightness(1.2);
-  box-shadow: inset 0 0 0 2px var(--fr-line-hi);
-}
-
-.routine-stats-rowtotal {
-  padding-left: 0.55rem;
-  color: var(--fr-ink-dim);
-  font-size: 0.62rem;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-/* ---- weekly milestone chips ---- */
-.routine-stats-weeks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.6rem;
-}
-.routine-stats-week-chip {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.25rem 0.45rem;
-  background-color: var(--fr-panel);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 1px 1px 0 0 rgba(255, 255, 255, 0.06),
-    inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
-}
-.routine-stats-week-chip.is-perfect {
-  background-color: color-mix(in srgb, var(--fr-perfect) 28%, var(--fr-panel));
-  border-color: var(--fr-perfect);
-}
-.routine-stats-week-name {
-  color: var(--fr-ink-muted);
-  font-size: 0.54rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-}
-.routine-stats-week-stars {
-  color: var(--fr-today);
-  font-size: 0.62rem;
-  letter-spacing: -0.05em;
-}
-.routine-stats-week-rank {
-  color: var(--fr-ink-light);
-  font-size: 0.56rem;
-  font-weight: 800;
-}
-.routine-stats-week-chip.is-perfect .routine-stats-week-rank {
-  color: var(--fr-perfect);
-}
-
-/* ---- trend sparkline ---- */
-.routine-stats-trend {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.6rem;
-  padding: 0.35rem 0.5rem;
-  background-color: var(--fr-panel-inset);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.45);
-}
-.routine-stats-trend-label {
-  color: var(--fr-ink-muted);
-  font-size: 0.54rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-}
-.routine-stats-trend-spark {
-  color: var(--fr-accent-hi);
-  font-size: 0.95rem;
-  letter-spacing: 0.04em;
-  line-height: 1;
-  text-shadow: 1px 1px 0 var(--fr-line-dark);
-}
-
-/* ---- footer stat blocks ---- */
-.routine-stats-footer {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.4rem;
-  margin-top: 0.6rem;
-  padding-top: 0.55rem;
-  border-top: 2px solid var(--fr-line-dark);
-}
-.routine-stats-fstat {
-  display: grid;
-  gap: 0.1rem;
-  place-items: center;
-  padding: 0.35rem 0.3rem;
-  background-color: var(--fr-panel);
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 1px 1px 0 0 rgba(255, 255, 255, 0.06),
-    inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
-}
-.routine-stats-fstat-value {
-  color: var(--fr-accent-hi);
-  font-size: 0.9rem;
-  font-weight: 800;
-  text-shadow: 1px 1px 0 var(--fr-line-dark);
-}
-.routine-stats-fstat-label {
-  color: var(--fr-ink-muted);
-  font-size: 0.5rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-align: center;
-}
-
-/* ---- achievements ---- */
-.routine-stats-achievements {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.6rem;
-}
-.routine-stats-badge {
-  display: flex;
-  align-items: center;
-  gap: 0.32rem;
-  padding: 0.25rem 0.45rem;
-  background-color: color-mix(in srgb, var(--fr-today) 20%, var(--fr-panel));
-  background-image: var(--fr-crt);
-  background-size: 140px 140px, auto;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 1px 1px 0 0 rgba(255, 255, 255, 0.06),
-    inset -1px -2px 0 0 rgba(0, 0, 0, 0.4);
-}
-.routine-stats-badge-icon {
-  font-size: 0.8rem;
-  line-height: 1;
-}
-.routine-stats-badge-text {
-  color: var(--fr-ink-light);
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-}
-
-/* ---- legend ---- */
-.routine-stats-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-  margin-top: 0.6rem;
-  padding-top: 0.5rem;
-  border-top: 2px solid var(--fr-line-dark);
-}
-.routine-stats-legend-item {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--fr-ink-muted);
-  font-size: 0.56rem;
-  font-weight: 700;
-}
-.routine-stats-legend-swatch {
-  width: 0.8rem;
-  height: 0.8rem;
-  border: 1px solid var(--fr-line-dark);
-}
-.routine-stats-legend-swatch.is-done {
-  background: var(--fr-accent);
-}
-.routine-stats-legend-swatch.is-missed {
-  background: var(--fr-missed);
-}
-.routine-stats-legend-swatch.is-today {
-  background: var(--fr-today);
-}
-.routine-stats-legend-swatch.is-perfect {
-  background: var(--fr-perfect);
-}
-
-@keyframes fr-today-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(2px); }
-}
-@keyframes fr-today-pulse {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.35); }
-}
-
-/* ============================================================
-   Mobile
-   ============================================================ */
-@media (max-width: 600px) {
-  .folder-routines {
-    gap: 1.25rem;
-    padding: 0.5rem;
-  }
-  .folder-routines-heading {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: 0.45rem;
-    padding: 0.65rem 0.65rem;
-  }
-  .folder-routines-progress {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-    grid-template-columns: auto 1fr;
-  }
-  .folder-routines-progress-bar {
-    width: auto;
-  }
-  .folder-routines-label {
-    padding-right: 2rem;
-  }
-  .folder-routines-tree {
-    width: 2rem;
-  }
-
-  /* stats: keep boards within the viewport; heatmap scrolls horizontally */
-  .routine-stats-board {
-    padding: 0.5rem;
-    overflow: hidden;
-  }
-  .routine-stats-summary {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .routine-stats-footer {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .routine-stats-head {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-}
-
-/* ============================================================
-   Pixel calendar (```pixel-calendar```) — day-planner window
-   ============================================================ */
-.pixel-calendar {
-  display: grid;
-  gap: 0.85rem;
-}
-
-/* ---- header: RPG title window ---- */
-.pixel-calendar-header {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0.8rem;
-  cursor: pointer;
-  color: var(--fr-ink-light);
-  background: linear-gradient(180deg, var(--fr-window-hi) 0, var(--fr-window) 100%);
-  border: 3px solid var(--fr-line-dark);
-  border-radius: 0;
-  box-shadow:
-    inset 0 0 0 2px var(--fr-window),
-    inset 0 0 0 4px var(--fr-line-hi),
-    inset 3px 3px 0 0 rgba(255, 255, 255, 0.1),
-    inset -3px -3px 0 0 rgba(0, 0, 0, 0.5),
-    5px 5px 0 0 var(--fr-line-dark);
-  clip-path: polygon(
-    0 4px, 4px 4px, 4px 0,
-    calc(100% - 4px) 0, calc(100% - 4px) 4px, 100% 4px,
-    100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px),
-    calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px)
-  );
-}
-.pixel-calendar-title {
-  font-weight: 800;
-  font-size: 1.15rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  text-shadow: 2px 2px 0 var(--fr-line-dark);
-}
-.theme-light .pixel-calendar-title {
-  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
-}
-.pixel-calendar-date {
-  justify-self: end;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fr-accent-hi);
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.theme-light .pixel-calendar-date {
-  color: color-mix(in srgb, var(--fr-accent) 55%, #000);
-}
-
-.pixel-calendar.is-collapsed .folder-routines-collapse-icon::before {
-  content: "►";
-}
-.pixel-calendar.is-collapsed .pixel-calendar-layout {
-  display: none;
-}
-
-/* ---- two-pane layout: habit tray + time grid ---- */
-.pixel-calendar-layout {
-  display: grid;
-  grid-template-columns: minmax(180px, 15rem) minmax(0, 1fr);
-  gap: 0.85rem;
-  align-items: start;
-}
-
-/* ---- side tray (source of draggable habits) ---- */
-.pixel-calendar-side {
-  display: grid;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  background-color: var(--fr-panel);
-  background-image: var(--fr-noise);
-  background-size: 140px 140px;
-  border: 3px solid var(--fr-line-dark);
-  border-radius: 0;
-  box-shadow:
-    inset 0 0 0 2px var(--fr-panel-alt),
-    inset 2px 2px 0 0 rgba(255, 255, 255, 0.06),
-    4px 4px 0 0 var(--fr-line-dark);
-}
-.pixel-calendar-side-header {
-  padding: 0.15rem 0.15rem 0.35rem;
-  border-bottom: 2px solid var(--fr-line-dark);
-}
-.pixel-calendar-side-title {
-  color: var(--fr-ink-light);
-  font-weight: 800;
-  font-size: 0.85rem;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  text-shadow: 2px 2px 0 var(--fr-line-dark);
-}
-.theme-light .pixel-calendar-side-title {
-  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
-}
-.pixel-calendar-side-list {
-  display: grid;
-  gap: 0.3rem;
-  min-height: 3rem;
-  padding: 0.35rem;
-  background-color: var(--fr-list-bg);
-  background-image: var(--fr-noise);
-  background-size: 140px 140px;
-  border: 2px solid var(--fr-line-dark);
-  box-shadow: inset 2px 2px 0 0 rgba(0, 0, 0, 0.45);
-}
-.pixel-calendar-side-list.is-drop-target {
-  outline: 2px solid var(--fr-purple);
-  outline-offset: -1px;
-  animation: fr-slot-pulse 640ms steps(2) infinite;
-}
-.pixel-calendar-side-empty {
-  color: var(--fr-ink-muted);
-  font-size: 0.72rem;
-  letter-spacing: 0.03em;
-  padding: 0.4rem 0.2rem;
-}
-.pixel-calendar-side-habit {
-  display: grid;
-  gap: 0.25rem;
-}
-.pixel-calendar-side-subtasks {
-  display: grid;
-  gap: 0.25rem;
-  margin-left: 0.9rem;
-  padding-left: 0.5rem;
-  border-left: 2px solid var(--fr-line-hi);
-}
-
-/* ---- collapsible sub-sections in the tray ---- */
-.pixel-calendar-side-section {
-  display: grid;
-  gap: 0.3rem;
-}
-.pixel-calendar-side-heading {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  cursor: pointer;
-  padding: 0.2rem 0.1rem;
-  color: var(--fr-ink-dim);
-  font-weight: 800;
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  user-select: none;
-}
-.pixel-calendar-side-heading:hover {
-  color: var(--fr-ink-light);
-}
-.pixel-calendar-side-section.is-collapsed .folder-routines-collapse-icon::before {
-  content: "\25BA";
-}
-.pixel-calendar-side-body {
-  display: grid;
-  gap: 0.3rem;
-  margin-left: 0.5rem;
-  padding-left: 0.5rem;
-  border-left: 2px solid var(--fr-line-hi);
-}
-.pixel-calendar-side-section.is-collapsed > .pixel-calendar-side-body {
-  display: none;
-}
-
-/* ---- the scrolling time grid ---- */
-.pixel-calendar-grid-wrap {
-  max-height: 32rem;
-  overflow-y: auto;
-  background-color: var(--fr-list-bg);
-  background-image: var(--fr-noise);
-  background-size: 140px 140px;
-  border: 3px solid var(--fr-line-dark);
-  border-radius: 0;
-  box-shadow:
-    inset 2px 2px 0 0 rgba(0, 0, 0, 0.5),
-    4px 4px 0 0 var(--fr-line-dark);
-}
-.pixel-calendar-grid {
-  display: grid;
-  position: relative;
-  --fr-slot-h: 2.1rem;
-  --fr-time-w: 3.6rem;
-}
-.pixel-calendar-row {
-  display: grid;
-  grid-template-columns: var(--fr-time-w) minmax(0, 1fr);
-  align-items: stretch;
-  /* a slot grows when more events stack inside it than fit side by side */
-  height: calc(var(--fr-slot-h) * var(--fr-row-units, 1));
-  border-top: 1px solid color-mix(in srgb, var(--fr-line-dark) 45%, transparent);
-}
-.pixel-calendar-row:first-child {
-  border-top: none;
-}
-.pixel-calendar-row.is-hour {
-  border-top: 2px solid var(--fr-line-dark);
-}
-.pixel-calendar-row.is-now {
-  background: color-mix(in srgb, var(--fr-accent) 22%, transparent);
-  box-shadow: inset 3px 0 0 0 var(--fr-accent);
-}
-/* zero-height ruler: one unscaled slot, used to measure a drag in minutes */
-.pixel-calendar-unit {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: var(--fr-slot-h);
-  visibility: hidden;
-  pointer-events: none;
-}
-.pixel-calendar-time {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
-  padding: 0.3rem 0.45rem 0;
-  color: var(--fr-ink-muted);
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  background: var(--fr-panel-inset);
-  border-right: 2px solid var(--fr-line-dark);
-}
-.pixel-calendar-row.is-hour .pixel-calendar-time {
-  color: var(--fr-ink-dim);
-}
-.pixel-calendar-row.is-now .pixel-calendar-time {
-  color: var(--fr-accent-hi);
-}
-.pixel-calendar-slot {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: center;
-  gap: 0.3rem;
-  height: 100%;
-  min-height: 0;
-  padding: 0.2rem 0.3rem;
-  transition: box-shadow 90ms steps(2), background-color 90ms steps(2);
-}
-.pixel-calendar-slot:hover {
-  background-color: color-mix(in srgb, var(--fr-hover) 30%, transparent);
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--fr-purple) 45%, transparent);
-}
-/* affordance: an empty slot hints that a double-click adds a one-off task */
-.pixel-calendar-slot:empty::before {
-  content: "+ TASK";
-  color: var(--fr-ink-muted);
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  opacity: 0;
-  transition: opacity 90ms steps(2);
-  pointer-events: none;
-}
-.pixel-calendar-slot:empty:hover::before {
-  opacity: 0.8;
-}
-.pixel-calendar-slot.is-drop-target {
-  background-color: color-mix(in srgb, var(--fr-purple) 20%, transparent);
-  box-shadow: inset 0 0 0 2px var(--fr-purple);
-  animation: fr-slot-pulse 640ms steps(2) infinite;
-}
-
-/* ---- chips: shared base for tray + slot ---- */
-.pixel-calendar-chip {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.22rem 0.4rem;
-  color: var(--fr-ink-light);
-  background: linear-gradient(180deg, var(--fr-window-hi) 0, var(--fr-window) 100%);
-  border: 2px solid var(--fr-line-dark);
-  border-left: 4px solid var(--fr-accent);
-  border-radius: 0;
-  box-shadow: var(--fr-bevel), 2px 2px 0 0 var(--fr-line-dark);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  cursor: grab;
-  transition: transform 90ms steps(1);
-}
-.pixel-calendar-chip:hover {
-  transform: translate(-1px, -1px);
-}
-.pixel-calendar-chip.is-dragging {
-  opacity: 0.5;
-  cursor: grabbing;
-}
-.pixel-calendar-chip.is-subtask {
-  border-left: 4px solid var(--fr-accent);
-}
-.pixel-calendar-chip.is-missing {
-  color: #ff8880;
-  background: var(--fr-panel);
-  box-shadow: inset 0 0 0 2px #e0574f, 2px 2px 0 0 var(--fr-line-dark);
-  cursor: grab;
-}
-
-.pixel-calendar-chip.is-done {
-  border-left-color: var(--fr-green);
-  background: linear-gradient(180deg, var(--fr-window) 0, var(--fr-window-inset) 100%);
-}
-.pixel-calendar-chip.is-done .pixel-calendar-chip-text {
-  color: var(--fr-ink-light);
-  opacity: 0.65;
-  text-decoration: none;
-}
-.pixel-calendar-chip-info {
-  display: grid;
-  min-width: 0;
-  line-height: 1.15;
-}
-.pixel-calendar-chip-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* the owning habit of a subtask: its own line, smaller and faded */
-.pixel-calendar-chip-parent {
-  overflow: hidden;
-  color: var(--fr-ink-muted);
-  font-size: 0.52rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-  opacity: 0.7;
-}
-.pixel-calendar-side-chip .pixel-calendar-chip-info {
-  flex: 1 1 auto;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
-}
-.pixel-calendar-chip-time {
-  justify-self: start;
-  margin-top: 0.2rem;
-  padding: 0.02rem 0.25rem;
-  color: var(--fr-window-inset);
-  background: var(--fr-accent);
-  border: 2px solid var(--fr-line-dark);
-  font-size: 0.56rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-}
-.pixel-calendar-side-chip.is-scheduled {
-  opacity: 0.72;
-}
-
-/* ---- one-off tasks: created by double-clicking a time slot ---- */
-.pixel-calendar-chip.is-custom {
-  border-left: 2px solid var(--fr-line-dark);
-}
-.pixel-calendar-chip.is-editing {
-  padding: 0.15rem 0.25rem;
-  cursor: default;
-}
-.pixel-calendar-task-input {
-  width: 100%;
-  min-width: 0;
-  padding: 0.15rem 0.3rem;
-  color: var(--fr-ink-light);
-  background: var(--fr-window-inset);
-  border: 2px solid var(--fr-line-dark);
-  border-radius: 0;
-  box-shadow: inset 1px 1px 0 0 var(--fr-line-hi);
-  font-family: inherit;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-.pixel-calendar-task-input:focus {
-  outline: 2px solid var(--fr-line-hi);
-  outline-offset: 1px;
-}
-
-/* ---- event layer: chips float above the rows so they can span hours ---- */
-.pixel-calendar-events {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: var(--fr-time-w);
-  right: 0;
-  pointer-events: none;
-}
-.pixel-calendar-event {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  overflow: hidden;
-  margin: 0 2px;
-  padding: 0.15rem 0.3rem;
-  pointer-events: auto;
-}
-.pixel-calendar-event-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.4rem;
-  min-width: 0;
-}
-.pixel-calendar-event .pixel-calendar-chip-info {
-  flex: 1 1 auto;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
-}
-/* keep the checkbox and × on the title's line, not centred over both lines */
-.pixel-calendar-event .pixel-calendar-chip-remove,
-.pixel-calendar-event input[type="checkbox"] {
-  margin-top: 0.05rem;
-}
-/* bottom edge: drag to stretch the event over more time (invisible, cursor-only) */
-.pixel-calendar-event-handle {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 6px;
-  cursor: ns-resize;
-  background: transparent;
-  touch-action: none;
-}
-.pixel-calendar-event.is-resizing {
-  z-index: 3;
-  box-shadow: var(--fr-bevel), 0 0 0 2px var(--fr-accent);
-}
-
-.pixel-calendar-chip-remove {
-  flex: 0 0 auto;
-  width: 1.1rem;
-  height: 1.1rem;
-  margin-left: auto;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  color: var(--fr-ink-light);
-  background: var(--fr-window-inset);
-  border: 2px solid var(--fr-line-dark);
-  border-radius: 0;
-  box-shadow: var(--fr-bevel);
-  font-size: 0.7rem;
-  font-weight: 800;
-  line-height: 1;
-  cursor: pointer;
-}
-.pixel-calendar-chip-remove:hover {
-  color: var(--fr-window-inset);
-  background: #e0574f;
-}
-.pixel-calendar-chip-remove:active {
-  transform: translate(1px, 1px);
-}
-
-/* checkbox inside a scheduled slot chip — flat pixel cell, as in the stats grid */
-.pixel-calendar-chip input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  position: relative;
-  flex: 0 0 auto;
-  width: 1.05rem;
-  height: 1.05rem;
-  margin: 0;
-  background: var(--fr-missed);
-  border: 1px solid var(--fr-line-dark);
-  border-radius: 0 !important;
-  box-shadow: none;
-  opacity: 0.55;
-  cursor: pointer;
-  transition: transform 80ms steps(1), filter 80ms steps(1),
-    background-color 90ms steps(1);
-}
-.pixel-calendar-chip input[type="checkbox"]:hover {
-  filter: brightness(1.25);
-  opacity: 1;
-}
-.pixel-calendar-chip input[type="checkbox"]:active {
-  transform: scale(0.88);
-}
-.pixel-calendar-chip input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--fr-accent);
-  outline-offset: 2px;
-}
-.pixel-calendar-chip input[type="checkbox"]:checked {
-  background: var(--fr-accent);
-  opacity: 1;
-  animation: fr-check-pop 130ms steps(3);
-}
-.pixel-calendar-chip input[type="checkbox"]:checked:hover {
-  filter: brightness(1.3);
-}
-.pixel-calendar-chip input[type="checkbox"]::after {
-  content: "" !important;
-  display: block !important;
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  width: 0.24rem;
-  height: 0.46rem;
-  background: none !important;
-  background-color: transparent !important;
-  -webkit-mask-image: none !important;
-  mask-image: none !important;
-  border: solid var(--fr-line-dark) !important;
-  border-width: 0 2px 2px 0 !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  opacity: 0;
-  transform: translate(-50%, -55%) rotate(45deg) !important;
-  transition: none;
-}
-.pixel-calendar-chip input[type="checkbox"]:checked::after {
-  opacity: 1;
-  transition: opacity 90ms steps(2);
-}
-
-@media (max-width: 600px) {
-  .pixel-calendar-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .pixel-calendar-grid-wrap {
-    max-height: 24rem;
-  }
-  .pixel-calendar-date {
-    font-size: 0.6rem;
-  }
-}
-
-/* ============================================================
    Minimal habit checklist
-   Scoped to the routines block so the calendar and stats stay retro.
    ============================================================ */
 .folder-routines.folder-routines-minimal {
+  --fr-purple: #7c5cff;
+  --fr-purple-hi: #a88bff;
   --fr-accent: var(--interactive-accent);
   --fr-accent-hi: var(--interactive-accent-hover, var(--interactive-accent));
   --fr-ink-light: var(--text-normal);
@@ -1975,8 +35,25 @@
 .theme-light .folder-routines.folder-routines-minimal .folder-routines-root {
   --fr-accent: var(--fr-purple);
 }
+.folder-routines.folder-routines-minimal .folder-routines-color-1 {
+  --fr-accent: #5a95e0;
+}
+.folder-routines.folder-routines-minimal .folder-routines-color-2 {
+  --fr-accent: #cea345;
+}
+.folder-routines.folder-routines-minimal .folder-routines-color-3 {
+  --fr-accent: #47c95a;
+}
+.folder-routines.folder-routines-minimal .folder-routines-color-4 {
+  --fr-accent: #e0574f;
+}
 
 .folder-routines.folder-routines-minimal .folder-routines-heading {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin: 0;
   min-height: 1.55rem;
   padding: 0.06rem 0.2rem 0.06rem 1.35rem;
   gap: 0.5rem;
@@ -1987,7 +64,9 @@
   border-radius: 0;
   box-shadow: none;
   clip-path: none;
+  cursor: pointer;
   transition: background-color 120ms ease;
+  user-select: none;
 }
 .folder-routines.folder-routines-minimal .folder-routines-heading:hover {
   background: color-mix(in srgb, var(--fr-minimal-hover) 45%, transparent);
@@ -2020,9 +99,7 @@
   > .folder-routines-heading::after {
   transform: translateY(-50%) rotate(-45deg);
 }
-.folder-routines.folder-routines-minimal .folder-routines-heading-title,
-.folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-heading-title {
+.folder-routines.folder-routines-minimal .folder-routines-heading-title {
   color: var(--fr-accent);
   font-size: 0.9rem;
   font-weight: 650;
@@ -2030,8 +107,7 @@
   text-transform: none;
   text-shadow: none;
 }
-.folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-root
+.folder-routines.folder-routines-minimal .folder-routines-root
   > .folder-routines-heading
   .folder-routines-heading-title {
   color: var(--fr-purple-hi);
@@ -2039,7 +115,7 @@
   letter-spacing: 0;
 }
 .theme-light
-  .folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines.folder-routines-minimal
   .folder-routines-root
   > .folder-routines-heading
   .folder-routines-heading-title {
@@ -2047,10 +123,15 @@
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-progress {
+  display: grid;
   grid-template-columns: auto minmax(3.5rem, 5.5rem);
+  align-items: center;
   gap: 0.55rem;
+  justify-self: end;
 }
 .folder-routines.folder-routines-minimal .folder-routines-progress-badge {
+  display: inline-flex;
+  align-items: center;
   padding: 0;
   background: transparent;
   border: 0;
@@ -2082,18 +163,19 @@
   box-shadow: none;
 }
 .folder-routines.folder-routines-minimal .folder-routines-progress-fill {
+  width: var(--fr-progress, 0%);
+  height: 100%;
   background: var(--fr-accent);
   border-radius: inherit;
   transition: width 180ms ease;
 }
-.folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
-  .folder-routines-root
+.folder-routines.folder-routines-minimal .folder-routines-root
   > .folder-routines-heading
   .folder-routines-progress-fill {
   background: var(--fr-purple-hi);
 }
 .theme-light
-.folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines.folder-routines-minimal
   .folder-routines-root
   > .folder-routines-heading
   .folder-routines-progress-fill {
@@ -2101,6 +183,8 @@
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-body {
+  position: relative;
+  display: grid;
   gap: 0;
   height: auto;
   max-height: none;
@@ -2110,6 +194,8 @@
   background: transparent;
   border: 0;
   box-shadow: none;
+  overflow: hidden;
+  opacity: 1;
   transition:
     height 220ms cubic-bezier(0.4, 0, 0.2, 1),
     opacity 160ms ease,
@@ -2118,6 +204,8 @@
     padding-bottom 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .folder-routines.folder-routines-minimal .folder-routines-body::before {
+  content: "";
+  position: absolute;
   left: 0;
   top: 0.25rem;
   bottom: 0.25rem;
@@ -2143,6 +231,8 @@
   margin-top: 0;
   padding-top: 0;
   padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 .folder-routines.folder-routines-minimal
   .folder-routines-section
@@ -2152,6 +242,9 @@
 
 .folder-routines.folder-routines-minimal .folder-routines-item,
 .folder-routines.folder-routines-minimal .folder-routines-item:nth-child(even) {
+  position: relative;
+  margin: 0;
+  outline: none;
   color: var(--text-normal);
   background: transparent;
   border: 0;
@@ -2172,9 +265,12 @@
   transform: none;
 }
 .folder-routines.folder-routines-minimal .folder-routines-label {
+  display: flex;
+  align-items: center;
   min-height: 1.55rem;
   gap: 0.55rem;
   padding: 0 0.45rem;
+  cursor: pointer;
 }
 .folder-routines.folder-routines-minimal .folder-routines-index {
   min-width: 1.25rem;
@@ -2199,11 +295,18 @@
   input[type="checkbox"] {
   width: 1.08rem;
   height: 1.08rem;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
   background: transparent;
   border: 1.5px solid var(--text-faint);
   border-radius: 4px !important;
   box-shadow: none;
   opacity: 1;
+  cursor: pointer;
   transition: background-color 120ms ease, border-color 120ms ease,
     transform 100ms ease;
 }
@@ -2232,7 +335,11 @@
 .folder-routines.folder-routines-minimal
   .folder-routines-label
   input[type="checkbox"]:checked {
-  background: var(--fr-accent);
+  background-color: var(--fr-accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3 8 3 3 7-7' fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round' stroke-width='2.4'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 0.75rem 0.75rem;
   border-color: var(--fr-accent);
   opacity: 1;
   animation: none;
@@ -2241,18 +348,24 @@
 .folder-routines.folder-routines-minimal
   .folder-routines-label
   input[type="checkbox"]::after {
+  content: "" !important;
+  display: block !important;
+  position: absolute;
+  left: 50%;
   top: 45%;
   width: 0.23rem;
   height: 0.42rem;
+  border-style: solid !important;
   border-color: var(--text-on-accent, #fff) !important;
   border-width: 0 2px 2px 0 !important;
+  opacity: 0 !important;
   transform: translate(-50%, -55%) rotate(45deg) !important;
 }
 .folder-routines.folder-routines-minimal .folder-routines-checkbox:checked::after,
 .folder-routines.folder-routines-minimal
   .folder-routines-label
   input[type="checkbox"]:checked::after {
-  transition: opacity 100ms ease;
+  opacity: 0 !important;
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-item.is-checked,
@@ -2276,20 +389,19 @@
   .folder-routines-index {
   color: var(--text-success, #3f9d68);
 }
-.folder-routines.folder-routines-minimal .folder-routines-item.is-checked::after,
-.folder-routines.folder-routines-minimal .folder-routines-quest-banner,
-.folder-routines.folder-routines-minimal .folder-routines-xp-popup {
-  display: none;
-}
-
 .folder-routines.folder-routines-minimal .folder-routines-subtasks {
+  position: relative;
+  display: grid;
   gap: 0;
   margin: 0 0 0 1.25rem;
   padding-left: 0.8rem;
   border-left: 1px solid var(--fr-minimal-border);
 }
 .folder-routines.folder-routines-minimal .folder-routines-subtask {
+  position: relative;
   min-height: 1.45rem;
+  margin: 0;
+  outline: none;
   border-radius: 6px;
   transition: background-color 120ms ease;
 }
@@ -2328,10 +440,12 @@
   width: 0.95rem;
   height: 0.95rem;
 }
-.folder-routines.folder-routines-minimal
-  .folder-routines-section.is-just-completed
-  > .folder-routines-heading {
-  animation: none;
+.folder-routines-error {
+  padding: 0.5rem 0.65rem;
+  color: var(--text-error);
+  background: var(--background-primary-alt);
+  border-left: 2px solid var(--text-error);
+  font-family: var(--font-interface);
 }
 
 @media (max-width: 600px) {

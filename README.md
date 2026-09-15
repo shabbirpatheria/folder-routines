@@ -1,42 +1,22 @@
-# Pixel Habits
+# Habit Checklist
 
-Turn a folder of notes into a retro **16-bit RPG** habit tracker for [Obsidian](https://obsidian.md) — a checklist, a day planner, and a stats screen.
+Turn a folder of notes into a compact, minimal habit checklist for [Obsidian](https://obsidian.md).
 
 ## Habits
 
 Every note in your routines folder becomes a checkbox, grouped into colour-coded sections. Ticking one writes today's date into that note, so your history lives in your vault as plain frontmatter.
 
-![The Pixel Habits checklist: collapsible, colour-coded sections of habits with pixel checkboxes](assets/checklist.png)
-
-## Day plan
-
-Drag habits from the tray into the day, stretch them to however long they really take, and check them off in place. Double-click an empty slot for a one-off task that isn't part of your routines.
-
-![The pixel calendar: habits dragged from the side tray into half-hour time slots across the day](assets/calendar.png)
-
-## Stats
-
-A JRPG character screen for your consistency: levels, ranks, XP, achievements, and a heatmap where streaks join into a single bar labelled with its length.
-
-![The stats board: an RPG character screen with level, streaks, a completion bar, heatmap, and achievement badges](assets/stats.png)
-
 ## Quick start
 
 1. Install the plugin (see [Installation](#installation)) and put your habit notes in a `Routines` folder.
-2. Add any of these code blocks to your daily note — there's an **Insert…** command for each:
+2. Add the `routines` code block to your daily note, or use the **Insert routines checklist block** command:
 
 ````markdown
 ```routines
 ```
-
-```pixel-calendar
-```
-
-```routine-stats
-```
 ````
 
-All three stay in sync as you click, and everything is stored in your notes' frontmatter.
+Completion history is stored in your notes' frontmatter.
 
 ---
 
@@ -88,7 +68,7 @@ subtasks:
 ---
 ```
 
-Each subtask renders as a nested checkbox under the habit, connected with pixel tree connectors (`├──` / `└──`). The parent and its subtasks stay in sync both ways:
+Each subtask renders as a nested checkbox under the habit. The parent and its subtasks stay in sync both ways:
 
 - Checking **every** subtask automatically checks the parent and logs the daily note's date into `entries`.
 - Unchecking any subtask automatically unchecks the parent and removes that date.
@@ -114,126 +94,21 @@ entries:
 
 Notes without a `subtasks` property behave exactly as before — a single checkbox.
 
-## Pixel calendar
-
-Plan your day by adding a `pixel-calendar` code block to your daily note (or use the **Insert pixel calendar block** command):
-
-````markdown
-```pixel-calendar
-```
-````
-
-This renders a single-day planner titled **Day Plan** for the daily note's date, with 48 half-hour slots covering 24 hours (fewer if you set a later **Calendar start time**). Every habit — and its subtasks — appears in a side tray:
-
-- **Drag** a habit or subtask from the tray into any time slot to schedule it. The plan is saved to the daily note's `pixelCalendarPlan` frontmatter property, so it persists across reloads.
-- **Double-click an empty time slot** to add a **one-off task** for that day — something that isn't one of your routines (see below).
-- **Stretch** anything you've scheduled: drag the bottom edge of a block to make it span more time (30 minutes at a time).
-- **Check** any item — right inside its slot **or straight from the side tray** — this writes to `entries` / `subtaskEntries` exactly like the checklist (subtask/parent stay in sync), and both the tray and slot reflect the completion.
-- **Remove** a scheduled item with the `×` button on its slot chip.
-- **Collapse** the whole planner by clicking the **Day Plan** header, just like the checklist's top-level **Habits** toggle.
-- The side tray's folder sections are an **accordion** — opening one section collapses the others, so at most one is expanded at a time.
-- The row for the current half-hour is highlighted so you can see where you are in the day.
-- **Trim the early hours** with the **Calendar start time** setting: pick when your day begins and the grid starts there, so a 24-hour column doesn't waste space on hours you never plan. Anything already scheduled earlier still shows its time in the side tray, ready to be dragged back onto the grid.
-- Each chip — and its checkbox — is tinted with its habit's **section color**, matching the checklist.
-
-```yaml
----
-pixelCalendarPlan:
-  "07:00":
-    - Routines/Fitness/Gym.md
-  "07:30":
-    - "Routines/Fitness/Gym.md::Cool down"
----
-```
-
-### Durations
-
-Every scheduled block starts as one 30-minute slot, but a habit rarely fits neatly into half an hour:
-
-- **Drag the bottom edge** of a block to stretch it over as many rows as you need. Durations snap to whole 30-minute slots, and a block can never be made shorter than one slot.
-- Moving a block to another slot **keeps its duration**.
-- Two blocks sharing the same time sit **side by side**. A third one wraps onto a new line and the time slot **grows taller** to fit it — long blocks keep running unbroken down the side.
-- The side tray shows each scheduled habit's full time range.
-
-Anything other than a plain 30-minute slot is saved to the daily note's `pixelCalendarTimes` property:
-
-```yaml
----
-pixelCalendarTimes:
-  Routines/Fitness/Gym.md:
-    start: "07:10"
-    end: "09:05"
----
-```
-
-### One-off tasks
-
-Not everything is a routine. **Double-click any empty time slot** to type a task just for that day — no note is created and nothing is added to your routines folder:
-
-- Press **Enter** to add it, **Escape** to cancel.
-- **Check** it off like any other chip, **drag** it to another slot, or **double-click** it to rename.
-- The `×` button (or dragging it back to the tray) **deletes** it.
-
-One-off tasks are stored in the daily note's `pixelCalendarTasks` property and referenced from the plan with a `custom:` prefix:
-
-```yaml
----
-pixelCalendarPlan:
-  "09:30":
-    - custom:m3k9f2-a1b2
-pixelCalendarTasks:
-  m3k9f2-a1b2:
-    title: Call the plumber
-    done: true
----
-```
-
-### Live sync between blocks
-
-The checklist, the pixel calendar, and the stats board stay in sync **as you click**. Checking a habit in the calendar instantly ticks it in the **Habits** checklist (updating its progress bars), and vice versa — no page refresh, no reopening the note.
-
-## Stats board
-
-Add a stats screen to **any** note with the `routine-stats` code block (or use the **Insert routine stats board** command):
-
-````markdown
-```routine-stats
-```
-````
-
-This renders a retro RPG **character-stats screen** with one board per folder/section, showing the last **21 days**:
-
-- **Header** — category banner, section title, level (`LV.n`), current streak, and a rank badge (S/A/B/C/D/E).
-- **Quick stats** — best streak, current streak, completion %, and earned XP.
-- **Completion HUD** — a block-based HP/XP-style progress bar.
-- **Heatmap** — routines × days grid; completed days are filled in the section's color, grouped by week with per-row totals. **Consecutive completed days are joined into a single bar**, and the last day of each run is stamped with the streak length.
-- **Weekly milestones** — star ratings and rank per week, with a special *Perfect Week* state.
-- **Trend** — a pixel sparkline of daily completions.
-- **Lifetime stats** — best streak, success rate, missed days, and XP gained.
-- **Achievements** — collectible pixel badges (First Clear, 7-Day Streak, Perfect Day, Perfect Week, 100% Complete).
-
-**Click any cell** in the heatmap to add or remove a completion for that routine on that day — it writes to the same `entries` (and fans out to subtasks) exactly like the checklist, and the board updates live.
-
 ## Settings
 
 - **Routines folder** — the folder holding your routine notes, picked from a dropdown of every folder in the vault (default: `Routines`)
-- **Minimal habit checklist** — switches only the habit checklist from the retro theme to a compact minimal design; the pixel calendar and stats keep their retro styling (default: off)
-- **Hide routine numbering** — hides checklist indices and leading file or folder numbering such as `1. Meditation` across the checklist, calendar, and stats without renaming anything on disk (default: off)
+- **Hide routine numbering** — hides checklist indices and leading file or folder numbering such as `1. Meditation` without renaming anything on disk (default: off)
 - **Entries property** — frontmatter property updated when an item is checked (default: `entries`)
 - **Stored date format** — Moment format used for the date written into `entries` (default: `YYYY-MM-DD`)
 - **Subtasks property** — frontmatter property that lists a note's subtasks (default: `subtasks`)
 - **Subtask entries property** — frontmatter property where per-subtask completion dates are stored (default: `subtaskEntries`)
-- **Pixel calendar property** — frontmatter property in the daily note where the pixel calendar plan is stored (default: `pixelCalendarPlan`)
-- **Pixel calendar tasks property** — frontmatter property in the daily note where one-off calendar tasks are stored (default: `pixelCalendarTasks`)
-- **Pixel calendar times property** — frontmatter property in the daily note where custom start/finish times are stored (default: `pixelCalendarTimes`)
-- **Calendar start time** — earliest half-hour slot the day plan shows; everything before it is hidden (default: `00:00`)
-- **Reset all tracking data** — after confirmation, permanently removes completion and subtask history plus saved calendar plans, one-off tasks, and custom times from every Markdown file; habit definitions, note content, and plugin settings are preserved
+- **Reset all tracking data** — after confirmation, permanently removes completion and subtask history from every Markdown file; habit definitions, note content, and plugin settings are preserved
 
 ## Installation
 
 ### From the Community Plugins browser
 
-Once accepted: Settings → Community plugins → Browse → search for "Pixel Habits".
+Once accepted: Settings → Community plugins → Browse → search for "Habit Checklist".
 
 ### Manual
 
