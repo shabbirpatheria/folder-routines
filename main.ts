@@ -16,6 +16,7 @@ import {
 
 interface FolderRoutinesSettings {
   routinesFolder: string;
+  minimalChecklist: boolean;
   hideRoutineNumbering: boolean;
   entriesProperty: string;
   storeDateFormat: string;
@@ -29,6 +30,7 @@ interface FolderRoutinesSettings {
 
 const DEFAULT_SETTINGS: FolderRoutinesSettings = {
   routinesFolder: "Routines",
+  minimalChecklist: false,
   hideRoutineNumbering: false,
   entriesProperty: "entries",
   storeDateFormat: "YYYY-MM-DD",
@@ -569,6 +571,10 @@ export default class FolderRoutinesPlugin extends Plugin {
 
     const dateStr = date.format(this.settings.storeDateFormat || "YYYY-MM-DD");
     const container = el.createDiv({ cls: "folder-routines" });
+    container.toggleClass(
+      "folder-routines-minimal",
+      this.settings.minimalChecklist
+    );
 
     const section = container.createDiv({
       cls: "folder-routines-section folder-routines-root",
@@ -2549,6 +2555,27 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
+
+    new Setting(containerEl)
+      .setName("Minimal habit checklist")
+      .setDesc(
+        "Switch habit checklists from the retro theme to a clean minimal design. The pixel calendar and statistics keep their current theme."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.minimalChecklist)
+          .onChange(async (value) => {
+            this.plugin.settings.minimalChecklist = value;
+            await this.plugin.saveSettings();
+            document
+              .querySelectorAll<HTMLElement>(
+                ".folder-routines:not(.routine-stats):not(.pixel-calendar)"
+              )
+              .forEach((checklist) =>
+                checklist.toggleClass("folder-routines-minimal", value)
+              );
+          })
+      );
 
     new Setting(containerEl)
       .setName("Hide routine numbering")

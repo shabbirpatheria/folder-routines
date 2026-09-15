@@ -1938,3 +1938,421 @@
     font-size: 0.6rem;
   }
 }
+
+/* ============================================================
+   Minimal habit checklist
+   Scoped to the routines block so the calendar and stats stay retro.
+   ============================================================ */
+.folder-routines.folder-routines-minimal {
+  --fr-accent: var(--interactive-accent);
+  --fr-accent-hi: var(--interactive-accent-hover, var(--interactive-accent));
+  --fr-ink-light: var(--text-normal);
+  --fr-ink-dim: var(--text-muted);
+  --fr-ink-muted: var(--text-faint);
+  --fr-green: var(--text-success, #3f9d68);
+  --fr-minimal-border: var(--background-modifier-border);
+  --fr-minimal-hover: var(--background-modifier-hover);
+  --fr-minimal-selected: color-mix(
+    in srgb,
+    var(--interactive-accent) 10%,
+    transparent
+  );
+
+  display: grid;
+  gap: 0.2rem;
+  padding: 0;
+  color: var(--text-normal);
+  background: none;
+  font-family: var(--font-interface);
+  image-rendering: auto;
+  interpolate-size: allow-keywords;
+  -webkit-font-smoothing: antialiased;
+}
+
+.folder-routines.folder-routines-minimal .folder-routines-root {
+  --fr-accent: var(--fr-purple-hi);
+}
+.theme-light .folder-routines.folder-routines-minimal .folder-routines-root {
+  --fr-accent: var(--fr-purple);
+}
+
+.folder-routines.folder-routines-minimal .folder-routines-heading {
+  min-height: 1.55rem;
+  padding: 0.06rem 0.2rem 0.06rem 1.35rem;
+  gap: 0.5rem;
+  color: var(--text-normal);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--fr-minimal-border);
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+  transition: background-color 120ms ease;
+}
+.folder-routines.folder-routines-minimal .folder-routines-heading:hover {
+  background: color-mix(in srgb, var(--fr-minimal-hover) 45%, transparent);
+  transform: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-heading:active {
+  transform: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-heading:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+.folder-routines.folder-routines-minimal .folder-routines-heading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0.35rem;
+  width: 0.38rem;
+  height: 0.38rem;
+  background: none;
+  border: 0;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  animation: none;
+  transform: translateY(-65%) rotate(45deg);
+  transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-section.is-collapsed
+  > .folder-routines-heading::after {
+  transform: translateY(-50%) rotate(-45deg);
+}
+.folder-routines.folder-routines-minimal .folder-routines-heading-title,
+.folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-heading-title {
+  color: var(--fr-accent);
+  font-size: 0.9rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: none;
+}
+.folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-heading-title {
+  color: var(--fr-purple-hi);
+  font-size: 1.08rem;
+  letter-spacing: 0;
+}
+.theme-light
+  .folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-heading-title {
+  color: var(--fr-purple);
+}
+
+.folder-routines.folder-routines-minimal .folder-routines-progress {
+  grid-template-columns: auto minmax(3.5rem, 5.5rem);
+  gap: 0.55rem;
+}
+.folder-routines.folder-routines-minimal .folder-routines-progress-badge {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-progress-label {
+  display: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-progress-count {
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: 0.72rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-section.is-complete
+  .folder-routines-progress-count::before {
+  content: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-progress-bar {
+  width: 100%;
+  height: 0.25rem;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-progress-fill {
+  background: var(--fr-accent);
+  border-radius: inherit;
+  transition: width 180ms ease;
+}
+.folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-progress-fill {
+  background: var(--fr-purple-hi);
+}
+.theme-light
+.folder-routines.folder-routines-minimal:not(.routine-stats):not(.pixel-calendar)
+  .folder-routines-root
+  > .folder-routines-heading
+  .folder-routines-progress-fill {
+  background: var(--fr-purple);
+}
+
+.folder-routines.folder-routines-minimal .folder-routines-body {
+  gap: 0;
+  height: auto;
+  max-height: none;
+  margin-top: 0;
+  margin-left: 0.75rem;
+  padding: 0 0 0 1rem;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  transition:
+    height 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 160ms ease,
+    margin-top 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    padding-top 220ms cubic-bezier(0.4, 0, 0.2, 1),
+    padding-bottom 220ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.folder-routines.folder-routines-minimal .folder-routines-body::before {
+  left: 0;
+  top: 0.25rem;
+  bottom: 0.25rem;
+  width: 1px;
+  background: var(--fr-minimal-border);
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-root
+  > .folder-routines-body {
+  margin-left: 0;
+  padding: 0;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-root
+  > .folder-routines-body::before {
+  display: none;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-section.is-collapsed
+  > .folder-routines-body {
+  height: 0;
+  max-height: none;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-section
+  .folder-routines-section {
+  margin-top: 0.15rem;
+}
+
+.folder-routines.folder-routines-minimal .folder-routines-item,
+.folder-routines.folder-routines-minimal .folder-routines-item:nth-child(even) {
+  color: var(--text-normal);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  transition: background-color 120ms ease;
+}
+.folder-routines.folder-routines-minimal .folder-routines-item::before {
+  display: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-item:hover {
+  background-color: var(--fr-minimal-hover);
+  transform: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-item.is-selected {
+  background-color: var(--fr-minimal-selected);
+  box-shadow: none;
+  transform: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-label {
+  min-height: 1.55rem;
+  gap: 0.55rem;
+  padding: 0 0.45rem;
+}
+.folder-routines.folder-routines-minimal .folder-routines-index {
+  min-width: 1.25rem;
+  color: var(--text-faint);
+  font-family: var(--font-interface);
+  font-size: 0.7rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.folder-routines.folder-routines-minimal .folder-routines-text {
+  color: var(--text-normal);
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+
+.folder-routines.folder-routines-minimal .folder-routines-checkbox,
+.folder-routines.folder-routines-minimal
+  .folder-routines-label
+  input[type="checkbox"] {
+  width: 1.08rem;
+  height: 1.08rem;
+  background: transparent;
+  border: 1.5px solid var(--text-faint);
+  border-radius: 4px !important;
+  box-shadow: none;
+  opacity: 1;
+  transition: background-color 120ms ease, border-color 120ms ease,
+    transform 100ms ease;
+}
+.folder-routines.folder-routines-minimal .folder-routines-checkbox:hover,
+.folder-routines.folder-routines-minimal
+  .folder-routines-label
+  input[type="checkbox"]:hover {
+  border-color: var(--interactive-accent);
+  filter: none;
+  opacity: 1;
+}
+.folder-routines.folder-routines-minimal .folder-routines-checkbox:focus-visible,
+.folder-routines.folder-routines-minimal
+  .folder-routines-label
+  input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+.folder-routines.folder-routines-minimal .folder-routines-checkbox:active,
+.folder-routines.folder-routines-minimal
+  .folder-routines-label
+  input[type="checkbox"]:active {
+  transform: scale(0.92);
+}
+.folder-routines.folder-routines-minimal .folder-routines-checkbox:checked,
+.folder-routines.folder-routines-minimal
+  .folder-routines-label
+  input[type="checkbox"]:checked {
+  background: var(--fr-accent);
+  border-color: var(--fr-accent);
+  opacity: 1;
+  animation: none;
+}
+.folder-routines.folder-routines-minimal .folder-routines-checkbox::after,
+.folder-routines.folder-routines-minimal
+  .folder-routines-label
+  input[type="checkbox"]::after {
+  top: 45%;
+  width: 0.23rem;
+  height: 0.42rem;
+  border-color: var(--text-on-accent, #fff) !important;
+  border-width: 0 2px 2px 0 !important;
+  transform: translate(-50%, -55%) rotate(45deg) !important;
+}
+.folder-routines.folder-routines-minimal .folder-routines-checkbox:checked::after,
+.folder-routines.folder-routines-minimal
+  .folder-routines-label
+  input[type="checkbox"]:checked::after {
+  transition: opacity 100ms ease;
+}
+
+.folder-routines.folder-routines-minimal .folder-routines-item.is-checked,
+.folder-routines.folder-routines-minimal
+  .folder-routines-item.is-checked:nth-child(even) {
+  box-shadow: none;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-item.is-checked
+  .folder-routines-text,
+.folder-routines.folder-routines-minimal
+  .folder-routines-subtask.is-checked
+  .folder-routines-text {
+  color: var(--text-muted);
+  opacity: 0.65;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-item.is-checked
+  .folder-routines-index {
+  color: var(--text-success, #3f9d68);
+}
+.folder-routines.folder-routines-minimal .folder-routines-item.is-checked::after,
+.folder-routines.folder-routines-minimal .folder-routines-quest-banner,
+.folder-routines.folder-routines-minimal .folder-routines-xp-popup {
+  display: none;
+}
+
+.folder-routines.folder-routines-minimal .folder-routines-subtasks {
+  gap: 0;
+  margin: 0 0 0 1.25rem;
+  padding-left: 0.8rem;
+  border-left: 1px solid var(--fr-minimal-border);
+}
+.folder-routines.folder-routines-minimal .folder-routines-subtask {
+  min-height: 1.45rem;
+  border-radius: 6px;
+  transition: background-color 120ms ease;
+}
+.folder-routines.folder-routines-minimal .folder-routines-subtask:hover,
+.folder-routines.folder-routines-minimal .folder-routines-subtask:focus-within {
+  background: var(--fr-minimal-hover);
+}
+.folder-routines.folder-routines-minimal .folder-routines-subtask.is-selected {
+  background: var(--fr-minimal-selected);
+  box-shadow: none;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-subtask
+  .folder-routines-label {
+  min-height: 1.45rem;
+  padding: 0 0.45rem;
+  gap: 0.45rem;
+}
+.folder-routines.folder-routines-minimal .folder-routines-tree {
+  display: none;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-subtask
+  .folder-routines-text {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 450;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-subtask
+  .folder-routines-checkbox,
+.folder-routines.folder-routines-minimal
+  .folder-routines-subtask
+  .folder-routines-label
+  input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+.folder-routines.folder-routines-minimal
+  .folder-routines-section.is-just-completed
+  > .folder-routines-heading {
+  animation: none;
+}
+
+@media (max-width: 600px) {
+  .folder-routines.folder-routines-minimal {
+    gap: 0.2rem;
+    padding: 0;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-right: 0.1rem;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-progress {
+    grid-template-columns: auto minmax(2.75rem, 4rem);
+    gap: 0.4rem;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-label {
+    gap: 0.5rem;
+    padding-right: 0.4rem;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-subtasks {
+    margin-left: 0.75rem;
+    padding-left: 0.55rem;
+  }
+}

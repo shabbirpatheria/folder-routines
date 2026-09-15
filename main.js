@@ -25,6 +25,7 @@ module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 var DEFAULT_SETTINGS = {
   routinesFolder: "Routines",
+  minimalChecklist: false,
   hideRoutineNumbering: false,
   entriesProperty: "entries",
   storeDateFormat: "YYYY-MM-DD",
@@ -437,6 +438,10 @@ var _FolderRoutinesPlugin = class _FolderRoutinesPlugin extends import_obsidian.
     }
     const dateStr = date.format(this.settings.storeDateFormat || "YYYY-MM-DD");
     const container = el.createDiv({ cls: "folder-routines" });
+    container.toggleClass(
+      "folder-routines-minimal",
+      this.settings.minimalChecklist
+    );
     const section = container.createDiv({
       cls: "folder-routines-section folder-routines-root"
     });
@@ -2168,6 +2173,19 @@ var FolderRoutinesSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       });
     });
+    new import_obsidian.Setting(containerEl).setName("Minimal habit checklist").setDesc(
+      "Switch habit checklists from the retro theme to a clean minimal design. The pixel calendar and statistics keep their current theme."
+    ).addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.minimalChecklist).onChange(async (value) => {
+        this.plugin.settings.minimalChecklist = value;
+        await this.plugin.saveSettings();
+        document.querySelectorAll(
+          ".folder-routines:not(.routine-stats):not(.pixel-calendar)"
+        ).forEach(
+          (checklist) => checklist.toggleClass("folder-routines-minimal", value)
+        );
+      })
+    );
     new import_obsidian.Setting(containerEl).setName("Hide routine numbering").setDesc(
       "Hide checklist indices and leading file or folder numbering such as '1. Meditation' across checklists, calendars, and stats. Names on disk are unchanged; reopen affected notes to apply."
     ).addToggle(

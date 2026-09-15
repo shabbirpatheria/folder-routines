@@ -217,6 +217,7 @@ This renders a retro RPG **character-stats screen** with one board per folder/se
 ## Settings
 
 - **Routines folder** — the folder holding your routine notes, picked from a dropdown of every folder in the vault (default: `Routines`)
+- **Minimal habit checklist** — switches only the habit checklist from the retro theme to a compact minimal design; the pixel calendar and stats keep their retro styling (default: off)
 - **Hide routine numbering** — hides checklist indices and leading file or folder numbering such as `1. Meditation` across the checklist, calendar, and stats without renaming anything on disk (default: off)
 - **Entries property** — frontmatter property updated when an item is checked (default: `entries`)
 - **Stored date format** — Moment format used for the date written into `entries` (default: `YYYY-MM-DD`)
