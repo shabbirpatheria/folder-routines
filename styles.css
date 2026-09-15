@@ -2356,3 +2356,38 @@
     padding-left: 0.55rem;
   }
 }
+
+@media (hover: none), (pointer: coarse) {
+  .folder-routines.folder-routines-minimal .folder-routines-heading:hover {
+    background: transparent;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-item:hover,
+  .folder-routines.folder-routines-minimal .folder-routines-item.is-selected {
+    background-color: transparent;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-subtask:hover,
+  .folder-routines.folder-routines-minimal
+    .folder-routines-subtask:focus-within,
+  .folder-routines.folder-routines-minimal
+    .folder-routines-subtask.is-selected {
+    background: transparent;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-heading,
+  .folder-routines.folder-routines-minimal .folder-routines-item,
+  .folder-routines.folder-routines-minimal .folder-routines-subtask {
+    transition-property: none;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-checkbox:hover,
+  .folder-routines.folder-routines-minimal
+    .folder-routines-label
+    input[type="checkbox"]:hover {
+    border-color: var(--text-faint);
+  }
+  .folder-routines.folder-routines-minimal
+    .folder-routines-checkbox:checked:hover,
+  .folder-routines.folder-routines-minimal
+    .folder-routines-label
+    input[type="checkbox"]:checked:hover {
+    border-color: var(--fr-accent);
+  }
+}
