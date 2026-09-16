@@ -60,7 +60,6 @@
   color: var(--text-normal);
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--fr-minimal-border);
   border-radius: 0;
   box-shadow: none;
   clip-path: none;
