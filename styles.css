@@ -462,14 +462,14 @@
     transition-property: none;
   }
   .folder-routines.folder-routines-minimal
-    .folder-routines-label
-    :hover
+    .folder-routines-label:hover
     .folder-routines-checkbox-indicator {
     border-color: var(--text-faint);
   }
   .folder-routines.folder-routines-minimal
     .folder-routines-label
-    :has(input[type="checkbox"]:checked):hover
+    input[type="checkbox"]:checked
+    +
     .folder-routines-checkbox-indicator {
     border-color: var(--fr-accent);
   }
