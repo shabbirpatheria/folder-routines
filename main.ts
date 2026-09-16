@@ -7,11 +7,11 @@ import {
   TFolder,
   MarkdownPostProcessorContext,
   MarkdownRenderChild,
-  Modal,
   Notice,
   Editor,
-  MarkdownView,
+  MarkdownFileInfo,
   moment,
+  SettingDefinitionItem,
 } from "obsidian";
 
 interface FolderRoutinesSettings {
@@ -34,11 +34,23 @@ const DEFAULT_SETTINGS: FolderRoutinesSettings = {
 
 const SUBTASK_SEP = "::";
 
-interface TrackingResetResult {
-  filesCleared: number;
-  propertiesCleared: number;
-  failedFiles: string[];
+type Frontmatter = Record<string, unknown>;
+
+interface AppPluginAccess {
+  internalPlugins?: {
+    getPluginById?: (id: string) => unknown;
+  };
+  plugins?: {
+    getPlugin?: (id: string) => unknown;
+  };
 }
+
+interface ParsedDate {
+  isValid(): boolean;
+  format(format: string): string;
+}
+
+type MomentFactory = (input: string, format: string, strict: boolean) => ParsedDate;
 
 /* Per-block registry of "apply this completion state to my UI" callbacks,
    keyed by ref (note path, or path::subtask). */
@@ -63,27 +75,65 @@ function makeRef(path: string, subtask?: string | null): string {
   return subtask != null && subtask !== "" ? path + SUBTASK_SEP + subtask : path;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nestedString(value: unknown, keys: string[]): string | null {
+  let current = value;
+  for (const key of keys) {
+    if (!isRecord(current)) return null;
+    current = current[key];
+  }
+  return typeof current === "string" && current.length > 0 ? current : null;
+}
+
+function loadSettings(value: unknown): FolderRoutinesSettings {
+  const settings = isRecord(value) ? value : {};
+  const stringValue = (
+    key: Exclude<keyof FolderRoutinesSettings, "hideRoutineNumbering">
+  ): string => {
+    const storedValue = settings[key];
+    return typeof storedValue === "string" ? storedValue : DEFAULT_SETTINGS[key];
+  };
+  return {
+    routinesFolder: stringValue("routinesFolder"),
+    hideRoutineNumbering:
+      typeof settings.hideRoutineNumbering === "boolean"
+        ? settings.hideRoutineNumbering
+        : DEFAULT_SETTINGS.hideRoutineNumbering,
+    entriesProperty: stringValue("entriesProperty"),
+    storeDateFormat: stringValue("storeDateFormat"),
+    subtasksProperty: stringValue("subtasksProperty"),
+    subtaskEntriesProperty: stringValue("subtaskEntriesProperty"),
+  };
+}
+
 function getDailyNoteFormat(app: App): string {
-  const anyApp = app as any;
+  const appWithPlugins = app as unknown as AppPluginAccess;
   try {
-    const dn = anyApp.internalPlugins?.getPluginById?.("daily-notes");
-    const fmt = dn?.instance?.options?.format;
-    if (fmt) return fmt;
-  } catch (e) {
-    /* ignore */
+    const format = nestedString(
+      appWithPlugins.internalPlugins?.getPluginById?.("daily-notes"),
+      ["instance", "options", "format"]
+    );
+    if (format) return format;
+  } catch {
+    // An unavailable optional plugin should fall back to the configured default.
   }
   try {
-    const pn = anyApp.plugins?.getPlugin?.("periodic-notes");
-    const fmt = pn?.settings?.daily?.format;
-    if (fmt) return fmt;
-  } catch (e) {
-    /* ignore */
+    const format = nestedString(
+      appWithPlugins.plugins?.getPlugin?.("periodic-notes"),
+      ["settings", "daily", "format"]
+    );
+    if (format) return format;
+  } catch {
+    // An unavailable optional plugin should fall back to the configured default.
   }
   return "YYYY-MM-DD";
 }
 
 export default class FolderRoutinesPlugin extends Plugin {
-  settings: FolderRoutinesSettings;
+  settings!: FolderRoutinesSettings;
 
   async onload() {
     await this.loadSettings();
@@ -96,7 +146,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     this.addCommand({
       id: "insert-routines-block",
       name: "Insert routines checklist block",
-      editorCallback: (editor: Editor, _view: MarkdownView) => {
+      editorCallback: (editor: Editor, _context: MarkdownFileInfo) => {
         editor.replaceSelection("```routines\n```\n");
       },
     });
@@ -105,61 +155,11 @@ export default class FolderRoutinesPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = loadSettings(await this.loadData());
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
-  }
-
-  private trackingPropertyNames(): string[] {
-    return [
-      this.settings.entriesProperty,
-      this.settings.subtaskEntriesProperty,
-    ].filter((name, index, names) => name.length > 0 && names.indexOf(name) === index);
-  }
-
-  async resetTrackingData(): Promise<TrackingResetResult> {
-    const properties = this.trackingPropertyNames();
-    const files = this.app.vault.getMarkdownFiles().filter((file) => {
-      const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      return (
-        frontmatter != null &&
-        properties.some((property) =>
-          Object.prototype.hasOwnProperty.call(frontmatter, property)
-        )
-      );
-    });
-
-    let filesCleared = 0;
-    let propertiesCleared = 0;
-    const failedFiles: string[] = [];
-
-    for (const file of files) {
-      let removedFromFile = 0;
-      try {
-        await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-          for (const property of properties) {
-            if (!Object.prototype.hasOwnProperty.call(frontmatter, property))
-              continue;
-            delete frontmatter[property];
-            removedFromFile += 1;
-          }
-        });
-        if (removedFromFile > 0) {
-          filesCleared += 1;
-          propertiesCleared += removedFromFile;
-        }
-      } catch (error) {
-        failedFiles.push(file.path);
-        console.error(
-          `Habit Checklist: failed to reset tracking data in ${file.path}`,
-          error
-        );
-      }
-    }
-
-    return { filesCleared, propertiesCleared, failedFiles };
   }
 
   /* The configured routines folder, or null when it no longer exists. The
@@ -170,21 +170,6 @@ export default class FolderRoutinesPlugin extends Plugin {
     if (path === "/" || path === vaultRoot.path) return vaultRoot;
     const folder = this.app.vault.getAbstractFileByPath(path);
     return folder instanceof TFolder ? folder : null;
-  }
-
-  /* Every folder in the vault, each parent listed before its children, so the
-     settings picker reads like the file explorer. */
-  allFolderPaths(): string[] {
-    const out: string[] = [];
-    const walk = (folder: TFolder) => {
-      out.push(folder.path);
-      const subs = folder.children
-        .filter((c): c is TFolder => c instanceof TFolder)
-        .sort((a, b) => a.name.localeCompare(b.name));
-      for (const sub of subs) walk(sub);
-    };
-    walk(this.app.vault.getRoot());
-    return out;
   }
 
   private displayName(name: string): string {
@@ -234,22 +219,40 @@ export default class FolderRoutinesPlugin extends Plugin {
     return [String(val)];
   }
 
-  private getNoteDate(sourcePath: string): ReturnType<typeof moment> | null {
+  private getDateString(sourcePath: string): string | null {
     const base = (sourcePath.split("/").pop() ?? "").replace(/\.md$/, "");
     const fmt = getDailyNoteFormat(this.app);
-    const m = moment(base, fmt, true);
-    return m.isValid() ? m : null;
+    const parsedDate = (moment as unknown as MomentFactory)(base, fmt, true);
+    return parsedDate.isValid()
+      ? parsedDate.format(this.settings.storeDateFormat || "YYYY-MM-DD")
+      : null;
+  }
+
+  private frontmatter(file: TFile): Frontmatter | null {
+    const value: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return isRecord(value) ? value : null;
+  }
+
+  private async updateFrontmatter(
+    file: TFile,
+    update: (frontmatter: Frontmatter) => void
+  ): Promise<void> {
+    await this.app.fileManager.processFrontMatter(file, (frontmatter: unknown) => {
+      if (isRecord(frontmatter)) update(frontmatter);
+    });
   }
 
   private isChecked(file: TFile, dateStr: string): boolean {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const entries = this.normalizeEntries(fm?.[this.settings.entriesProperty]);
+    const frontmatter = this.frontmatter(file);
+    const entries = this.normalizeEntries(
+      frontmatter?.[this.settings.entriesProperty]
+    );
     return entries.includes(dateStr);
   }
 
   private getSubtasks(file: TFile): string[] {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    return this.normalizeEntries(fm?.[this.settings.subtasksProperty])
+    const frontmatter = this.frontmatter(file);
+    return this.normalizeEntries(frontmatter?.[this.settings.subtasksProperty])
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   }
@@ -264,8 +267,10 @@ export default class FolderRoutinesPlugin extends Plugin {
   }
 
   private isSubtaskChecked(file: TFile, name: string, dateStr: string): boolean {
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const map = this.normalizeSubtaskEntries(fm?.[this.settings.subtaskEntriesProperty]);
+    const frontmatter = this.frontmatter(file);
+    const map = this.normalizeSubtaskEntries(
+      frontmatter?.[this.settings.subtaskEntriesProperty]
+    );
     return (map[name] ?? []).includes(dateStr);
   }
 
@@ -276,9 +281,9 @@ export default class FolderRoutinesPlugin extends Plugin {
     const entriesProp = this.settings.entriesProperty;
     const subProp = this.settings.subtaskEntriesProperty;
 
-    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    const parentDates = this.normalizeEntries(fm?.[entriesProp]);
-    const current = this.normalizeSubtaskEntries(fm?.[subProp]);
+    const frontmatter = this.frontmatter(file);
+    const parentDates = this.normalizeEntries(frontmatter?.[entriesProp]);
+    const current = this.normalizeSubtaskEntries(frontmatter?.[subProp]);
 
     const resolved: Record<string, string[]> = {};
     let changed = false;
@@ -291,15 +296,15 @@ export default class FolderRoutinesPlugin extends Plugin {
     }
 
     if (changed) {
-      await this.app.fileManager.processFrontMatter(file, (fmw) => {
-        const pDates = this.normalizeEntries(fmw[entriesProp]);
-        const map = this.normalizeSubtaskEntries(fmw[subProp]);
+      await this.updateFrontmatter(file, (updatedFrontmatter) => {
+        const pDates = this.normalizeEntries(updatedFrontmatter[entriesProp]);
+        const map = this.normalizeSubtaskEntries(updatedFrontmatter[subProp]);
         for (const name of subtasks) {
           const set = new Set(map[name] ?? []);
           for (const d of pDates) set.add(d);
           map[name] = [...set].sort();
         }
-        fmw[subProp] = map;
+        updatedFrontmatter[subProp] = map;
       });
     }
 
@@ -308,15 +313,15 @@ export default class FolderRoutinesPlugin extends Plugin {
 
   private async setEntry(file: TFile, dateStr: string, checked: boolean) {
     const prop = this.settings.entriesProperty;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      let entries = this.normalizeEntries(fm[prop]);
+    await this.updateFrontmatter(file, (frontmatter) => {
+      let entries = this.normalizeEntries(frontmatter[prop]);
       if (checked) {
         if (!entries.includes(dateStr)) entries.push(dateStr);
       } else {
         entries = entries.filter((e) => e !== dateStr);
       }
       entries.sort();
-      fm[prop] = entries;
+      frontmatter[prop] = entries;
     });
   }
 
@@ -330,8 +335,8 @@ export default class FolderRoutinesPlugin extends Plugin {
     const entriesProp = this.settings.entriesProperty;
     const subProp = this.settings.subtaskEntriesProperty;
     let parentChecked = false;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      const map = this.normalizeSubtaskEntries(fm[subProp]);
+    await this.updateFrontmatter(file, (frontmatter) => {
+      const map = this.normalizeSubtaskEntries(frontmatter[subProp]);
       let dates = map[name] ?? [];
       if (checked) {
         if (!dates.includes(dateStr)) dates.push(dateStr);
@@ -343,19 +348,19 @@ export default class FolderRoutinesPlugin extends Plugin {
 
       const allDone = allSubtasks.every((s) => (map[s] ?? []).includes(dateStr));
       parentChecked = allDone;
-      let entries = this.normalizeEntries(fm[entriesProp]);
+      let entries = this.normalizeEntries(frontmatter[entriesProp]);
       if (allDone) {
         if (!entries.includes(dateStr)) entries.push(dateStr);
       } else {
         entries = entries.filter((e) => e !== dateStr);
       }
       entries.sort();
-      fm[entriesProp] = entries;
+      frontmatter[entriesProp] = entries;
 
       if (Object.keys(map).length === 0) {
-        delete fm[subProp];
+        delete frontmatter[subProp];
       } else {
-        fm[subProp] = map;
+        frontmatter[subProp] = map;
       }
     });
     return parentChecked;
@@ -369,8 +374,8 @@ export default class FolderRoutinesPlugin extends Plugin {
   ) {
     const entriesProp = this.settings.entriesProperty;
     const subProp = this.settings.subtaskEntriesProperty;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      const map = this.normalizeSubtaskEntries(fm[subProp]);
+    await this.updateFrontmatter(file, (frontmatter) => {
+      const map = this.normalizeSubtaskEntries(frontmatter[subProp]);
       for (const name of allSubtasks) {
         let dates = map[name] ?? [];
         if (checked) {
@@ -382,19 +387,19 @@ export default class FolderRoutinesPlugin extends Plugin {
         map[name] = dates;
       }
 
-      let entries = this.normalizeEntries(fm[entriesProp]);
+      let entries = this.normalizeEntries(frontmatter[entriesProp]);
       if (checked) {
         if (!entries.includes(dateStr)) entries.push(dateStr);
       } else {
         entries = entries.filter((e) => e !== dateStr);
       }
       entries.sort();
-      fm[entriesProp] = entries;
+      frontmatter[entriesProp] = entries;
 
       if (Object.keys(map).length === 0) {
-        delete fm[subProp];
+        delete frontmatter[subProp];
       } else {
-        fm[subProp] = map;
+        frontmatter[subProp] = map;
       }
     });
   }
@@ -411,8 +416,8 @@ export default class FolderRoutinesPlugin extends Plugin {
       return;
     }
 
-    const date = this.getNoteDate(ctx.sourcePath);
-    if (!date) {
+    const dateStr = this.getDateString(ctx.sourcePath);
+    if (!dateStr) {
       el.createDiv({
         cls: "folder-routines-error",
         text: "Habit Checklist: could not parse a date from this note's filename (expected a daily note).",
@@ -420,7 +425,6 @@ export default class FolderRoutinesPlugin extends Plugin {
       return;
     }
 
-    const dateStr = date.format(this.settings.storeDateFormat || "YYYY-MM-DD");
     const container = el.createDiv({
       cls: "folder-routines folder-routines-minimal",
     });
@@ -557,8 +561,9 @@ export default class FolderRoutinesPlugin extends Plugin {
     }
     const checkbox = label.createEl("input", {
       type: "checkbox",
-    }) as HTMLInputElement;
+    });
     checkbox.classList.add("folder-routines-checkbox");
+    label.createSpan({ cls: "folder-routines-checkbox-indicator" });
     label.createSpan({
       text: this.displayName(file.basename),
       cls: "folder-routines-text",
@@ -576,7 +581,8 @@ export default class FolderRoutinesPlugin extends Plugin {
         this.updateAncestorProgress(itemEl);
       });
 
-      checkbox.addEventListener("change", async () => {
+      checkbox.addEventListener("change", () => {
+        void (async () => {
         const target = checkbox.checked;
         checkbox.disabled = true;
         try {
@@ -599,6 +605,7 @@ export default class FolderRoutinesPlugin extends Plugin {
           checkbox.disabled = false;
           this.updateAncestorProgress(itemEl);
         }
+        })();
       });
       return;
     }
@@ -630,8 +637,9 @@ export default class FolderRoutinesPlugin extends Plugin {
       subLabel.createSpan({ cls: "folder-routines-tree", text: "" });
       const subCheckbox = subLabel.createEl("input", {
         type: "checkbox",
-      }) as HTMLInputElement;
+      });
       subCheckbox.classList.add("folder-routines-checkbox", "folder-routines-progress-checkbox");
+      subLabel.createSpan({ cls: "folder-routines-checkbox-indicator" });
       subCheckbox.checked = (resolved[name] ?? []).includes(dateStr);
       subLabel.createSpan({ text: name, cls: "folder-routines-text" });
       subItem.toggleClass("is-checked", subCheckbox.checked);
@@ -645,7 +653,8 @@ export default class FolderRoutinesPlugin extends Plugin {
         this.updateAncestorProgress(subItem);
       });
 
-      subCheckbox.addEventListener("change", async () => {
+      subCheckbox.addEventListener("change", () => {
+        void (async () => {
         const target = subCheckbox.checked;
         setAllDisabled(true);
         try {
@@ -675,6 +684,7 @@ export default class FolderRoutinesPlugin extends Plugin {
           setAllDisabled(false);
           this.updateAncestorProgress(subItem);
         }
+        })();
       });
     });
 
@@ -690,7 +700,8 @@ export default class FolderRoutinesPlugin extends Plugin {
       this.updateAncestorProgress(itemEl);
     });
 
-    checkbox.addEventListener("change", async () => {
+    checkbox.addEventListener("change", () => {
+      void (async () => {
       const target = checkbox.checked;
       setAllDisabled(true);
       try {
@@ -717,68 +728,10 @@ export default class FolderRoutinesPlugin extends Plugin {
         setAllDisabled(false);
         this.updateAncestorProgress(itemEl);
       }
+      })();
     });
   }
 
-}
-
-class ResetTrackingDataModal extends Modal {
-  private plugin: FolderRoutinesPlugin;
-
-  constructor(app: App, plugin: FolderRoutinesPlugin) {
-    super(app);
-    this.plugin = plugin;
-  }
-
-  onOpen(): void {
-    this.setTitle("Reset all tracking data?");
-    this.contentEl.createEl("p", {
-      text: "This permanently removes habit and subtask completion history from every Markdown file in this vault.",
-    });
-    this.contentEl.createEl("p", {
-      text: "Habit definitions, note content, and plugin settings are kept. This cannot be undone.",
-    });
-
-    let cancelButton: HTMLButtonElement | null = null;
-    new Setting(this.contentEl)
-      .addButton((button) => {
-        cancelButton = button.buttonEl;
-        button.setButtonText("Cancel").onClick(() => this.close());
-      })
-      .addButton((button) =>
-        button
-          .setButtonText("Reset tracking data")
-          .setWarning()
-          .onClick(async () => {
-            button.setDisabled(true).setButtonText("Resetting...");
-            if (cancelButton) cancelButton.disabled = true;
-            try {
-              const result = await this.plugin.resetTrackingData();
-              this.close();
-              if (result.failedFiles.length > 0) {
-                new Notice(
-                  `Habit Checklist: cleared ${result.propertiesCleared} properties from ${result.filesCleared} files; ${result.failedFiles.length} files could not be updated. See the developer console.`
-                );
-              } else if (result.filesCleared === 0) {
-                new Notice("Habit Checklist: no tracking data found.");
-              } else {
-                new Notice(
-                  `Habit Checklist: cleared ${result.propertiesCleared} properties from ${result.filesCleared} files. Reopen affected notes to refresh their views.`
-                );
-              }
-            } catch (error) {
-              console.error("Habit Checklist: failed to reset tracking data", error);
-              new Notice("Habit Checklist: failed to reset tracking data.");
-              button.setDisabled(false).setButtonText("Reset tracking data");
-              if (cancelButton) cancelButton.disabled = false;
-            }
-          })
-      );
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
 }
 
 class FolderRoutinesSettingTab extends PluginSettingTab {
@@ -789,6 +742,73 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      {
+        name: "Routines folder",
+        desc: "Folder holding your routine notes.",
+        control: {
+          type: "folder",
+          key: "routinesFolder",
+          placeholder: "Routines",
+        },
+      },
+      {
+        name: "Hide routine numbering",
+        desc: "Hide checklist indices and leading file or folder numbering. Names on disk are unchanged.",
+        control: { type: "toggle", key: "hideRoutineNumbering" },
+      },
+      {
+        name: "Entries property",
+        desc: "Frontmatter property updated when an item is checked.",
+        control: { type: "text", key: "entriesProperty", placeholder: "entries" },
+      },
+      {
+        name: "Stored date format",
+        desc: "Moment format used for the date written into entries.",
+        control: { type: "text", key: "storeDateFormat", placeholder: "YYYY-MM-DD" },
+      },
+      {
+        name: "Subtasks property",
+        desc: "Frontmatter property that lists a note's subtasks.",
+        control: { type: "text", key: "subtasksProperty", placeholder: "subtasks" },
+      },
+      {
+        name: "Subtask entries property",
+        desc: "Frontmatter property where per-subtask completion dates are stored.",
+        control: {
+          type: "text",
+          key: "subtaskEntriesProperty",
+          placeholder: "subtaskEntries",
+        },
+      },
+    ];
+  }
+
+  getControlValue(key: string): unknown {
+    return this.plugin.settings[key as keyof FolderRoutinesSettings];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    if (key === "hideRoutineNumbering" && typeof value === "boolean") {
+      this.plugin.settings.hideRoutineNumbering = value;
+    } else if (key === "routinesFolder" && typeof value === "string") {
+      this.plugin.settings.routinesFolder = value.trim() || DEFAULT_SETTINGS.routinesFolder;
+    } else if (key === "entriesProperty" && typeof value === "string") {
+      this.plugin.settings.entriesProperty = value.trim() || DEFAULT_SETTINGS.entriesProperty;
+    } else if (key === "storeDateFormat" && typeof value === "string") {
+      this.plugin.settings.storeDateFormat = value.trim() || DEFAULT_SETTINGS.storeDateFormat;
+    } else if (key === "subtasksProperty" && typeof value === "string") {
+      this.plugin.settings.subtasksProperty = value.trim() || DEFAULT_SETTINGS.subtasksProperty;
+    } else if (key === "subtaskEntriesProperty" && typeof value === "string") {
+      this.plugin.settings.subtaskEntriesProperty =
+        value.trim() || DEFAULT_SETTINGS.subtaskEntriesProperty;
+    } else {
+      return;
+    }
+    await this.plugin.saveSettings();
+  }
+
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -796,19 +816,8 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Routines folder")
       .setDesc("Folder holding your routine notes.")
-      .addDropdown((drop) => {
-        const current = this.plugin.settings.routinesFolder;
-        const folders = this.plugin.allFolderPaths();
-        // A folder that has since been renamed or deleted still gets an entry,
-        // so the picker shows what is stored instead of a different folder.
-        if (!folders.includes(current))
-          drop.addOption(
-            current,
-            current === "" ? "(none selected)" : `${current} (not found)`
-          );
-        for (const path of folders)
-          drop.addOption(path, path === "/" ? "/ (vault root)" : path);
-        drop.setValue(current).onChange(async (value) => {
+      .addText((text) => {
+        text.setPlaceholder("Routines").setValue(this.plugin.settings.routinesFolder).onChange(async (value) => {
           this.plugin.settings.routinesFolder = value;
           await this.plugin.saveSettings();
         });
@@ -881,16 +890,5 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
-      .setName("Reset all tracking data")
-      .setDesc(
-        "Permanently delete habit and subtask completion history from every Markdown file in this vault."
-      )
-      .addButton((button) =>
-        button
-          .setButtonText("Reset tracking data")
-          .setWarning()
-          .onClick(() => new ResetTrackingDataModal(this.app, this.plugin).open())
-      );
   }
 }

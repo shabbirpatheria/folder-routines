@@ -96,13 +96,12 @@ Notes without a `subtasks` property behave exactly as before — a single checkb
 
 ## Settings
 
-- **Routines folder** — the folder holding your routine notes, picked from a dropdown of every folder in the vault (default: `Routines`)
+- **Routines folder** — the folder holding your routine notes (default: `Routines`)
 - **Hide routine numbering** — hides checklist indices and leading file or folder numbering such as `1. Meditation` without renaming anything on disk (default: off)
 - **Entries property** — frontmatter property updated when an item is checked (default: `entries`)
 - **Stored date format** — Moment format used for the date written into `entries` (default: `YYYY-MM-DD`)
 - **Subtasks property** — frontmatter property that lists a note's subtasks (default: `subtasks`)
 - **Subtask entries property** — frontmatter property where per-subtask completion dates are stored (default: `subtaskEntries`)
-- **Reset all tracking data** — after confirmation, permanently removes completion and subtask history from every Markdown file; habit definitions, note content, and plugin settings are preserved
 
 ## Installation
 
