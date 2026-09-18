@@ -27,6 +27,10 @@
   image-rendering: auto;
   interpolate-size: allow-keywords;
   -webkit-font-smoothing: antialiased;
+  /* Lets the two-column rule below key off the checklist's own width, so a
+     split pane or readable line length still gets one column when narrow. */
+  container-type: inline-size;
+  container-name: folder-routines;
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-root {
@@ -236,6 +240,27 @@
   .folder-routines-section
   .folder-routines-section {
   margin-top: 0.15rem;
+}
+
+/* Two columns on wide panes. The plugin wraps the top-level blocks in two
+   column elements; below the breakpoint those wrappers are transparent to
+   layout, so the checklist reads as the usual single list. */
+.folder-routines.folder-routines-minimal .folder-routines-columns,
+.folder-routines.folder-routines-minimal .folder-routines-column {
+  display: contents;
+}
+@container folder-routines (min-width: 600px) {
+  .folder-routines.folder-routines-minimal .folder-routines-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1.75rem;
+    align-items: start;
+  }
+  .folder-routines.folder-routines-minimal .folder-routines-column {
+    display: grid;
+    gap: 0;
+    min-width: 0;
+  }
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-item,

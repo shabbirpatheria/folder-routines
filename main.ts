@@ -435,6 +435,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     const body = section.createDiv({ cls: "folder-routines-body" });
     const sync: BlockSync = { id: this.nextBlockId(), setters: new Map() };
     await this.renderFolder(root, body, dateStr, 3, sync);
+    this.layoutColumns(body);
 
     this.registerBlockListener(el, ctx, (ev) => {
       if (ev.originId === sync.id || ev.dateStr !== dateStr) return;
@@ -489,6 +490,74 @@ export default class FolderRoutinesPlugin extends Plugin {
   }
 
   private static readonly SECTION_COLORS = 4;
+
+  /* Split the checklist's top-level blocks into two column wrappers. A block
+     is a section, or an item together with its subtask list. Reading order
+     is kept: the first column runs top to bottom, then the second, and the
+     split point balances the visible rows. The wrappers are invisible to
+     layout until the stylesheet decides the pane is wide enough to place
+     them side by side, so narrow panes still render one column. */
+  private layoutColumns(body: HTMLElement) {
+    let host = body;
+    let blocks = this.topLevelBlocks(body);
+    if (blocks.length === 1 && blocks[0][0].hasClass("folder-routines-section")) {
+      const inner = blocks[0][0].querySelector<HTMLElement>(
+        ":scope > .folder-routines-body"
+      );
+      if (inner) {
+        host = inner;
+        blocks = this.topLevelBlocks(inner);
+      }
+    }
+    if (blocks.length < 2) return;
+
+    const rowSelector =
+      ".folder-routines-heading, .folder-routines-item, .folder-routines-subtask";
+    const weights = blocks.map((block) =>
+      block.reduce(
+        (rows, el) =>
+          rows +
+          (el.matches(rowSelector) ? 1 : 0) +
+          el.querySelectorAll(rowSelector).length,
+        0
+      )
+    );
+    const total = weights.reduce((sum, w) => sum + w, 0);
+    let split = 1;
+    let bestDistance = Infinity;
+    let running = 0;
+    for (let i = 0; i < blocks.length - 1; i++) {
+      running += weights[i];
+      const distance = Math.abs(running * 2 - total);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        split = i + 1;
+      }
+    }
+
+    const columns = host.createDiv({ cls: "folder-routines-columns" });
+    const left = columns.createDiv({ cls: "folder-routines-column" });
+    const right = columns.createDiv({ cls: "folder-routines-column" });
+    blocks.forEach((block, i) => {
+      const column = i < split ? left : right;
+      for (const el of block) column.appendChild(el);
+    });
+  }
+
+  /* Direct children of a body grouped into blocks: a subtask list always
+     belongs to the item rendered immediately before it. */
+  private topLevelBlocks(body: HTMLElement): HTMLElement[][] {
+    const blocks: HTMLElement[][] = [];
+    for (const child of Array.from(body.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (child.hasClass("folder-routines-subtasks") && blocks.length > 0) {
+        blocks[blocks.length - 1].push(child);
+      } else {
+        blocks.push([child]);
+      }
+    }
+    return blocks;
+  }
 
   private createProgress(header: HTMLElement) {
     const progress = header.createDiv({ cls: "folder-routines-progress" });

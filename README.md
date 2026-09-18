@@ -2,6 +2,8 @@
 
 Turn a folder of notes into a compact, minimal habit checklist for [Obsidian](https://obsidian.md).
 
+Habit Checklist is a companion to the [Habit Tracker 21](https://github.com/zoreet/habit-tracker) plugin. Both read and write the same `entries` list of `YYYY-MM-DD` dates in your habit notes: tick habits off in your daily note with Habit Checklist, and view the streak history with Habit Tracker 21. Point both plugins at the same folder and no extra setup is needed.
+
 ## Habits
 
 Every note in your routines folder becomes a checkbox, grouped into colour-coded sections. Ticking one writes today's date into that note, so your history lives in your vault as plain frontmatter.
@@ -44,7 +46,7 @@ Add a code block to your daily note (or use the **Insert routines checklist bloc
 ```
 ````
 
-This renders a collapsible **Habits** checklist with **Fitness** and **Work** sections. When you check **Gym** in a daily note dated `2026-06-25`, that date is appended to the `entries` frontmatter property of `Fitness/Gym.md`:
+This renders a collapsible **Habits** checklist with **Fitness** and **Work** sections. On a wide pane (600px or more) the sections are laid out in two columns, read top to bottom and then left to right; narrower panes and phones show a single column. When you check **Gym** in a daily note dated `2026-06-25`, that date is appended to the `entries` frontmatter property of `Fitness/Gym.md`:
 
 ```yaml
 ---
@@ -54,6 +56,8 @@ entries:
 ```
 
 Unchecking removes the date. Checked items are shown with a strikethrough.
+
+This is the same format that Habit Tracker 21 reads, so a `habittracker` code block pointed at your routines folder will chart the dates written here.
 
 ### Subtasks
 
