@@ -549,7 +549,7 @@ export default class FolderRoutinesPlugin extends Plugin {
   private topLevelBlocks(body: HTMLElement): HTMLElement[][] {
     const blocks: HTMLElement[][] = [];
     for (const child of Array.from(body.children)) {
-      if (!(child instanceof HTMLElement)) continue;
+      if (!child.instanceOf(HTMLElement)) continue;
       if (child.hasClass("folder-routines-subtasks") && blocks.length > 0) {
         blocks[blocks.length - 1].push(child);
       } else {
