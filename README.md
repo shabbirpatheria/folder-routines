@@ -98,6 +98,10 @@ entries:
 
 Notes without a `subtasks` property behave exactly as before — a single checkbox.
 
+### Day navigation
+
+Above the checklist, buttons link to the previous and next day's notes; clicking one opens it in the same tab (Cmd/Ctrl-click opens a new tab). A button only appears when that day's note exists: on `2026-10-16` with no note for the 17th yet, you get just a button to `2026-10-15`; on `2026-10-15` you get buttons to both `2026-10-14` and `2026-10-16`. Daily notes are recognised by their filename, using the date format from the Daily notes or Periodic Notes plugin.
+
 ## Settings
 
 - **Routines folder** — the folder holding your routine notes (default: `Routines`)

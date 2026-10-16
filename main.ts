@@ -12,6 +12,8 @@ import {
   MarkdownFileInfo,
   moment,
   SettingDefinitionItem,
+  Keymap,
+  setIcon,
 } from "obsidian";
 
 interface FolderRoutinesSettings {
@@ -48,6 +50,8 @@ interface AppPluginAccess {
 interface ParsedDate {
   isValid(): boolean;
   format(format: string): string;
+  clone(): ParsedDate;
+  add(amount: number, unit: "days"): ParsedDate;
 }
 
 type MomentFactory = (input: string, format: string, strict: boolean) => ParsedDate;
@@ -219,13 +223,73 @@ export default class FolderRoutinesPlugin extends Plugin {
     return [String(val)];
   }
 
-  private getDateString(sourcePath: string): string | null {
-    const base = (sourcePath.split("/").pop() ?? "").replace(/\.md$/, "");
+  private parseDailyNoteDate(path: string): ParsedDate | null {
+    const base = (path.split("/").pop() ?? "").replace(/\.md$/, "");
     const fmt = getDailyNoteFormat(this.app);
     const parsedDate = (moment as unknown as MomentFactory)(base, fmt, true);
-    return parsedDate.isValid()
+    return parsedDate.isValid() ? parsedDate : null;
+  }
+
+  private getDateString(sourcePath: string): string | null {
+    const parsedDate = this.parseDailyNoteDate(sourcePath);
+    return parsedDate
       ? parsedDate.format(this.settings.storeDateFormat || "YYYY-MM-DD")
       : null;
+  }
+
+  /* ============================================================
+     Previous / next day navigation
+     ============================================================ */
+
+  /* The daily note `offset` days away from `date`, if it exists. Resolved like
+     a link, so it is found wherever it lives, preferring notes nearby. */
+  private adjacentDailyNote(sourcePath: string, date: ParsedDate, offset: number): TFile | null {
+    const name = date.clone().add(offset, "days").format(getDailyNoteFormat(this.app));
+    const target = this.app.metadataCache.getFirstLinkpathDest(name, sourcePath);
+    return target && target.extension === "md" && target.basename === name ? target : null;
+  }
+
+  /* Buttons to the day before and the day after, shown only when those notes
+     exist, and redrawn as notes are created, deleted or renamed. */
+  private renderDayNav(el: HTMLElement, ctx: MarkdownPostProcessorContext, date: ParsedDate) {
+    const nav = el.createDiv({ cls: "folder-routines-day-nav" });
+    const render = () => {
+      const prev = this.adjacentDailyNote(ctx.sourcePath, date, -1);
+      const next = this.adjacentDailyNote(ctx.sourcePath, date, 1);
+      nav.empty();
+      nav.toggleClass("is-empty", !prev && !next);
+      this.renderDayButton(nav, ctx.sourcePath, prev, "previous");
+      this.renderDayButton(nav, ctx.sourcePath, next, "next");
+    };
+    render();
+
+    const child = new MarkdownRenderChild(nav);
+    child.registerEvent(this.app.vault.on("create", render));
+    child.registerEvent(this.app.vault.on("delete", render));
+    child.registerEvent(this.app.vault.on("rename", render));
+    ctx.addChild(child);
+  }
+
+  private renderDayButton(
+    nav: HTMLElement,
+    sourcePath: string,
+    target: TFile | null,
+    side: "previous" | "next"
+  ) {
+    if (!target) {
+      nav.createDiv({ cls: "folder-routines-day-nav-spacer" });
+      return;
+    }
+    const button = nav.createEl("button", {
+      cls: `folder-routines-day-nav-button mod-${side}`,
+      attr: { "aria-label": `Open ${target.basename}` },
+    });
+    const icon = button.createSpan({ cls: "folder-routines-day-nav-icon" });
+    setIcon(icon, side === "previous" ? "chevron-left" : "chevron-right");
+    button.createSpan({ cls: "folder-routines-day-nav-label", text: target.basename });
+    button.addEventListener("click", (evt) => {
+      void this.app.workspace.openLinkText(target.path, sourcePath, Keymap.isModEvent(evt));
+    });
   }
 
   private frontmatter(file: TFile): Frontmatter | null {
@@ -416,14 +480,17 @@ export default class FolderRoutinesPlugin extends Plugin {
       return;
     }
 
+    const date = this.parseDailyNoteDate(ctx.sourcePath);
     const dateStr = this.getDateString(ctx.sourcePath);
-    if (!dateStr) {
+    if (!date || !dateStr) {
       el.createDiv({
         cls: "folder-routines-error",
         text: "Habit Checklist: could not parse a date from this note's filename (expected a daily note).",
       });
       return;
     }
+
+    this.renderDayNav(el, ctx, date);
 
     const container = el.createDiv({
       cls: "folder-routines folder-routines-minimal",

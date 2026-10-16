@@ -522,3 +522,41 @@
     border-color: var(--fr-accent);
   }
 }
+
+/* ============================================================
+   Previous / next day navigation
+   ============================================================ */
+.folder-routines-day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-2);
+}
+.folder-routines-day-nav.is-empty {
+  display: none;
+}
+/* In live preview Obsidian pins its "edit this block" button to the block's
+   top-right corner; keep the next-day button clear of it. */
+.markdown-source-view.mod-cm6 .cm-preview-code-block .folder-routines-day-nav {
+  padding-inline-end: calc(var(--icon-size, 18px) + var(--size-4-4));
+}
+
+.folder-routines-day-nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+}
+.folder-routines-day-nav-button.mod-next {
+  flex-direction: row-reverse;
+}
+
+.folder-routines-day-nav-icon {
+  display: inline-flex;
+}
+.folder-routines-day-nav-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
