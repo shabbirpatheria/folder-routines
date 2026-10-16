@@ -17,6 +17,12 @@
     var(--interactive-accent) 10%,
     transparent
   );
+  /* Row geometry, shared so a subtask list can line up under its parent. */
+  --fr-row-pad: 0.45rem;
+  --fr-row-gap: 0.55rem;
+  --fr-index-width: 1.25rem;
+  --fr-checkbox-size: 1.08rem;
+  --fr-index-space: calc(var(--fr-index-width) + var(--fr-row-gap));
 
   display: grid;
   gap: 0.2rem;
@@ -31,6 +37,9 @@
      split pane or readable line length still gets one column when narrow. */
   container-type: inline-size;
   container-name: folder-routines;
+}
+.folder-routines.folder-routines-minimal.folder-routines-unnumbered {
+  --fr-index-space: 0px;
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-root {
@@ -291,12 +300,12 @@
   display: flex;
   align-items: center;
   min-height: 1.55rem;
-  gap: 0.55rem;
-  padding: 0 0.45rem;
+  gap: var(--fr-row-gap);
+  padding: 0 var(--fr-row-pad);
   cursor: pointer;
 }
 .folder-routines.folder-routines-minimal .folder-routines-index {
-  min-width: 1.25rem;
+  min-width: var(--fr-index-width);
   color: var(--text-faint);
   font-family: var(--font-interface);
   font-size: 0.7rem;
@@ -330,8 +339,8 @@
   pointer-events: none;
 }
 .folder-routines.folder-routines-minimal .folder-routines-checkbox-indicator {
-  width: 1.08rem;
-  height: 1.08rem;
+  width: var(--fr-checkbox-size);
+  height: var(--fr-checkbox-size);
   flex: 0 0 auto;
   box-sizing: border-box;
   background: transparent;
@@ -382,19 +391,37 @@
   .folder-routines-text {
   color: var(--text-muted);
   opacity: 0.65;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 .folder-routines.folder-routines-minimal
   .folder-routines-item.is-checked
   .folder-routines-index {
   color: var(--text-success, #3f9d68);
 }
+/* The guide line drops from the centre of the parent's checkbox, and each
+   subtask's checkbox starts where the parent's text starts. */
 .folder-routines.folder-routines-minimal .folder-routines-subtasks {
   position: relative;
   display: grid;
   gap: 0;
-  margin: 0 0 0 1.25rem;
-  padding-left: 0.8rem;
-  border-left: 1px solid var(--fr-minimal-border);
+  margin: 0 0 0
+    calc(
+      var(--fr-row-pad) + var(--fr-index-space) + var(--fr-checkbox-size) / 2
+    );
+  padding-left: calc(
+    var(--fr-checkbox-size) / 2 + var(--fr-row-gap) - var(--fr-row-pad)
+  );
+}
+.folder-routines.folder-routines-minimal .folder-routines-subtasks::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0.3rem;
+  width: 1px;
+  background: var(--fr-minimal-border);
+  transform: translateX(-50%);
 }
 .folder-routines.folder-routines-minimal .folder-routines-subtask {
   position: relative;
@@ -416,7 +443,7 @@
   .folder-routines-subtask
   .folder-routines-label {
   min-height: 1.45rem;
-  padding: 0 0.45rem;
+  padding: 0 var(--fr-row-pad);
   gap: 0.45rem;
 }
 .folder-routines.folder-routines-minimal .folder-routines-tree {
@@ -445,6 +472,7 @@
 
 @media (max-width: 600px) {
   .folder-routines.folder-routines-minimal {
+    --fr-row-gap: 0.5rem;
     gap: 0.2rem;
     padding: 0;
   }
@@ -457,12 +485,7 @@
     gap: 0.4rem;
   }
   .folder-routines.folder-routines-minimal .folder-routines-label {
-    gap: 0.5rem;
     padding-right: 0.4rem;
-  }
-  .folder-routines.folder-routines-minimal .folder-routines-subtasks {
-    margin-left: 0.75rem;
-    padding-left: 0.55rem;
   }
 }
 

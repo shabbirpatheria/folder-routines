@@ -428,6 +428,10 @@ export default class FolderRoutinesPlugin extends Plugin {
     const container = el.createDiv({
       cls: "folder-routines folder-routines-minimal",
     });
+    container.toggleClass(
+      "folder-routines-unnumbered",
+      this.settings.hideRoutineNumbering
+    );
 
     const section = container.createDiv({
       cls: "folder-routines-section folder-routines-root",
