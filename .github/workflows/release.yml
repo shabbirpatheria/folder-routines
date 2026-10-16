@@ -1,0 +1,84 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, publish and attest
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Fetch annotated tag
+        run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+
+      - name: Check tag matches manifest version
+        run: |
+          version=$(node -p "require('./manifest.json').version")
+          if [ "$TAG" != "$version" ]; then
+            echo "Tag $TAG does not match manifest.json version $version" >&2
+            exit 1
+          fi
+
+      - name: Prepare release name and notes
+        run: |
+          subject=$(git tag -l --format='%(contents:subject)' "$TAG")
+          case "$subject" in
+            *"$TAG"*) title="$subject" ;;
+            *) title="$TAG${subject:+: $subject}" ;;
+          esac
+          echo "TITLE=$title" >> "$GITHUB_ENV"
+          git tag -l --format='%(contents:body)' "$TAG" | sed '/^Co-Authored-By:/d' > notes.md
+          if [ -z "$(tr -d '[:space:]' < notes.md)" ]; then
+            echo "$title" > notes.md
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build release assets
+        run: npm run build
+
+      - name: Publish release with canonical assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file notes.md
+            gh release upload "$TAG" main.js manifest.json styles.css --clobber
+          else
+            gh release create "$TAG" main.js manifest.json styles.css --verify-tag --title "$TITLE" --notes-file notes.md
+          fi
+
+      - name: Attest plugin assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
