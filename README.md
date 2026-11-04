@@ -57,7 +57,7 @@ entries:
 
 Unchecking removes the date. Checked items are shown with a strikethrough.
 
-Each habit shows its current streak next to its name, such as 🔥 12: the number of consecutive days in `entries` up to the daily note's date. A habit that is not ticked yet that day keeps the streak it had the day before, and nothing is shown when the streak is 0. Subtasks don't show a streak; a habit with subtasks counts the days its parent was complete.
+A habit can show its current streak next to its name, such as 🔥 12: the number of consecutive days in `entries` up to the daily note's date. Streaks are opt-in per habit; add `showStreak: true` to the habit note's frontmatter to turn one on. Until the habit is ticked that day, the streak is shown very faded with the number it will reach once you tick it — the day before's streak plus one. Nothing is shown when `showStreak` is false or missing. Subtasks don't show a streak; a habit with subtasks counts the days its parent was complete.
 
 This is the same format that Habit Tracker 21 reads, so a `habittracker` code block pointed at your routines folder will chart the dates written here.
 

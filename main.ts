@@ -36,6 +36,9 @@ const DEFAULT_SETTINGS: FolderRoutinesSettings = {
 
 const SUBTASK_SEP = "::";
 
+/* Frontmatter flag a habit note sets to true to show its streak. */
+const SHOW_STREAK_PROPERTY = "showStreak";
+
 type Frontmatter = Record<string, unknown>;
 
 interface AppPluginAccess {
@@ -308,23 +311,29 @@ export default class FolderRoutinesPlugin extends Plugin {
     });
   }
 
-  /* Consecutive days in `entries` ending on `dateStr`. A day that is not
-     ticked yet does not break the streak; it counts up to the day before. */
-  private streak(file: TFile, dateStr: string): number {
+  private showsStreak(file: TFile): boolean {
+    const value = this.frontmatter(file)?.[SHOW_STREAK_PROPERTY];
+    return value === true || value === "true";
+  }
+
+  /* The streak through `dateStr`: consecutive days in `entries` ending that
+     day. When that day is not ticked yet, `pending` is set and `days` is what
+     the streak would become once it is. */
+  private streak(file: TFile, dateStr: string): { days: number; pending: boolean } {
     const fmt = this.settings.storeDateFormat || "YYYY-MM-DD";
     const entries = new Set(
       this.normalizeEntries(this.frontmatter(file)?.[this.settings.entriesProperty])
     );
     const day = (moment as unknown as MomentFactory)(dateStr, fmt, true);
-    if (!day.isValid()) return 0;
-    if (!entries.has(dateStr)) day.add(-1, "days");
+    if (!day.isValid()) return { days: 0, pending: false };
+    day.add(-1, "days");
     let count = 0;
     // Capped so a format without day precision cannot loop forever.
     while (count < entries.size && entries.has(day.format(fmt))) {
       count++;
       day.add(-1, "days");
     }
-    return count;
+    return { days: count + 1, pending: !entries.has(dateStr) };
   }
 
   private isChecked(file: TFile, dateStr: string): boolean {
@@ -741,10 +750,16 @@ export default class FolderRoutinesPlugin extends Plugin {
     });
     const streakEl = label.createSpan({ cls: "folder-routines-streak" });
     const updateStreak = () => {
-      const days = this.streak(file, dateStr);
+      const { days, pending } = this.showsStreak(file)
+        ? this.streak(file, dateStr)
+        : { days: 0, pending: false };
       streakEl.setText(days > 0 ? `🔥 ${days}` : "");
       streakEl.toggleClass("is-empty", days === 0);
-      streakEl.setAttribute("aria-label", `${days}-day streak`);
+      streakEl.toggleClass("is-pending", pending);
+      streakEl.setAttribute(
+        "aria-label",
+        pending ? `${days}-day streak once completed` : `${days}-day streak`
+      );
     };
     updateStreak();
     sync?.streaks.set(file.path, updateStreak);

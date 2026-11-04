@@ -332,6 +332,10 @@
 .folder-routines.folder-routines-minimal .folder-routines-streak.is-empty {
   display: none;
 }
+.folder-routines.folder-routines-minimal .folder-routines-streak.is-pending {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
 
 .folder-routines.folder-routines-minimal .folder-routines-checkbox,
 .folder-routines.folder-routines-minimal
@@ -404,7 +408,6 @@
   color: var(--text-muted);
   opacity: 0.65;
   text-decoration: line-through;
-  text-decoration-thickness: 1px;
 }
 .folder-routines.folder-routines-minimal
   .folder-routines-item.is-checked
