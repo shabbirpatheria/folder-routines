@@ -57,10 +57,12 @@ interface ParsedDate {
 type MomentFactory = (input: string, format: string, strict: boolean) => ParsedDate;
 
 /* Per-block registry of "apply this completion state to my UI" callbacks,
-   keyed by ref (note path, or path::subtask). */
+   keyed by ref (note path, or path::subtask), plus streak redraws keyed by
+   note path. */
 interface BlockSync {
   id: string;
   setters: Map<string, (checked: boolean) => void>;
+  streaks: Map<string, () => void>;
 }
 
 /* Broadcast whenever a habit completion is written, so every rendered
@@ -306,6 +308,25 @@ export default class FolderRoutinesPlugin extends Plugin {
     });
   }
 
+  /* Consecutive days in `entries` ending on `dateStr`. A day that is not
+     ticked yet does not break the streak; it counts up to the day before. */
+  private streak(file: TFile, dateStr: string): number {
+    const fmt = this.settings.storeDateFormat || "YYYY-MM-DD";
+    const entries = new Set(
+      this.normalizeEntries(this.frontmatter(file)?.[this.settings.entriesProperty])
+    );
+    const day = (moment as unknown as MomentFactory)(dateStr, fmt, true);
+    if (!day.isValid()) return 0;
+    if (!entries.has(dateStr)) day.add(-1, "days");
+    let count = 0;
+    // Capped so a format without day precision cannot loop forever.
+    while (count < entries.size && entries.has(day.format(fmt))) {
+      count++;
+      day.add(-1, "days");
+    }
+    return count;
+  }
+
   private isChecked(file: TFile, dateStr: string): boolean {
     const frontmatter = this.frontmatter(file);
     const entries = this.normalizeEntries(
@@ -504,7 +525,11 @@ export default class FolderRoutinesPlugin extends Plugin {
       cls: "folder-routines-section folder-routines-root",
     });
     const body = section.createDiv({ cls: "folder-routines-body" });
-    const sync: BlockSync = { id: this.nextBlockId(), setters: new Map() };
+    const sync: BlockSync = {
+      id: this.nextBlockId(),
+      setters: new Map(),
+      streaks: new Map(),
+    };
     await this.renderFolder(root, body, dateStr, 3, sync);
     this.layoutColumns(body);
 
@@ -512,6 +537,12 @@ export default class FolderRoutinesPlugin extends Plugin {
       if (ev.originId === sync.id || ev.dateStr !== dateStr) return;
       sync.setters.get(makeRef(ev.path, ev.subtask))?.(ev.checked);
     });
+
+    const streakChild = new MarkdownRenderChild(container);
+    streakChild.registerEvent(
+      this.app.metadataCache.on("changed", (file) => sync.streaks.get(file.path)?.())
+    );
+    ctx.addChild(streakChild);
   }
 
   private async renderFolder(
@@ -708,6 +739,15 @@ export default class FolderRoutinesPlugin extends Plugin {
       text: this.displayName(file.basename),
       cls: "folder-routines-text",
     });
+    const streakEl = label.createSpan({ cls: "folder-routines-streak" });
+    const updateStreak = () => {
+      const days = this.streak(file, dateStr);
+      streakEl.setText(days > 0 ? `🔥 ${days}` : "");
+      streakEl.toggleClass("is-empty", days === 0);
+      streakEl.setAttribute("aria-label", `${days}-day streak`);
+    };
+    updateStreak();
+    sync?.streaks.set(file.path, updateStreak);
 
     if (subtasks.length === 0) {
       checkbox.classList.add("folder-routines-progress-checkbox");

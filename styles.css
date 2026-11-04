@@ -321,6 +321,18 @@
   line-height: 1.35;
 }
 
+.folder-routines.folder-routines-minimal .folder-routines-streak {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.folder-routines.folder-routines-minimal .folder-routines-streak.is-empty {
+  display: none;
+}
+
 .folder-routines.folder-routines-minimal .folder-routines-checkbox,
 .folder-routines.folder-routines-minimal
   .folder-routines-label
