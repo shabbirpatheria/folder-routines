@@ -560,18 +560,10 @@
 .folder-routines-day-nav-button {
   display: inline-flex;
   align-items: center;
-  gap: var(--size-4-1);
-  font-size: var(--font-ui-small);
+  justify-content: center;
   cursor: pointer;
 }
-.folder-routines-day-nav-button.mod-next {
-  flex-direction: row-reverse;
-}
-
-.folder-routines-day-nav-icon {
-  display: inline-flex;
-}
-.folder-routines-day-nav-icon svg {
+.folder-routines-day-nav-button svg {
   width: var(--icon-s);
   height: var(--icon-s);
 }

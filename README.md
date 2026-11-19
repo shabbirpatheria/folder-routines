@@ -28,7 +28,7 @@ Everything below is optional detail — the plugin works out of the box.
 
 ## How it works
 
-Point the plugin at a root folder (default: `Routines`). Each subfolder becomes a collapsible section, and each note inside becomes a checklist item:
+Point the plugin at a root folder (default: `Routines`). Each subfolder becomes a collapsible section, collapsed until you click its heading, and each note inside becomes a checklist item:
 
 ```
 Routines/
@@ -57,7 +57,7 @@ entries:
 
 Unchecking removes the date. Checked items are shown with a strikethrough.
 
-A habit can show its current streak next to its name, such as 🔥 12: the number of consecutive days in `entries` up to the daily note's date. Streaks are opt-in per habit; add `showStreak: true` to the habit note's frontmatter to turn one on. Until the habit is ticked that day, the streak is shown very faded with the number it will reach once you tick it — the day before's streak plus one. Nothing is shown when `showStreak` is false or missing. Subtasks don't show a streak; a habit with subtasks counts the days its parent was complete.
+A habit can show its current streak next to its name, such as 🔥 12: the number of consecutive days in `entries` up to the daily note's date. Streaks are opt-in per habit; add `showStreak: true` to the habit note's frontmatter to turn one on. Until the habit is ticked that day, the streak is shown very faded with the streak so far, ending the day before: 0 if the habit was missed yesterday, 1 if it was done yesterday but not the day before. Ticking the habit adds the day and shows the streak at full strength. Nothing is shown when `showStreak` is false or missing. Subtasks don't show a streak; a habit with subtasks counts the days its parent was complete.
 
 This is the same format that Habit Tracker 21 reads, so a `habittracker` code block pointed at your routines folder will chart the dates written here.
 
@@ -102,7 +102,7 @@ Notes without a `subtasks` property behave exactly as before — a single checkb
 
 ### Day navigation
 
-Above the checklist, buttons link to the previous and next day's notes; clicking one opens it in the same tab (Cmd/Ctrl-click opens a new tab). A button only appears when that day's note exists: on `2026-10-16` with no note for the 17th yet, you get just a button to `2026-10-15`; on `2026-10-15` you get buttons to both `2026-10-14` and `2026-10-16`. Daily notes are recognised by their filename, using the date format from the Daily notes or Periodic Notes plugin.
+Above the checklist, arrow buttons link to the previous and next day's notes; clicking one opens it in the same tab (Cmd/Ctrl-click opens a new tab). A button only appears when that day's note exists: on `2026-10-16` with no note for the 17th yet, you get just a button to `2026-10-15`; on `2026-10-15` you get buttons to both `2026-10-14` and `2026-10-16`. Daily notes are recognised by their filename, using the date format from the Daily notes or Periodic Notes plugin.
 
 ## Settings
 
@@ -112,6 +112,7 @@ Above the checklist, buttons link to the previous and next day's notes; clicking
 - **Stored date format** — Moment format used for the date written into `entries` (default: `YYYY-MM-DD`)
 - **Subtasks property** — frontmatter property that lists a note's subtasks (default: `subtasks`)
 - **Subtask entries property** — frontmatter property where per-subtask completion dates are stored (default: `subtaskEntries`)
+- **Reset habit data** — removes the entries and subtask entries properties from every habit note in the routines folder, after a confirmation. Subtask lists and other properties are kept. This cannot be undone.
 
 ## Installation
 

@@ -7,6 +7,7 @@ import {
   TFolder,
   MarkdownPostProcessorContext,
   MarkdownRenderChild,
+  Modal,
   Notice,
   Editor,
   MarkdownFileInfo,
@@ -181,6 +182,41 @@ export default class FolderRoutinesPlugin extends Plugin {
     return folder instanceof TFolder ? folder : null;
   }
 
+  /* Every habit note under the routines folder, including subfolders. */
+  private routineFiles(): TFile[] {
+    const root = this.routinesRoot();
+    if (!root) return [];
+    const files: TFile[] = [];
+    const walk = (folder: TFolder) => {
+      for (const child of folder.children) {
+        if (child instanceof TFolder) walk(child);
+        else if (child instanceof TFile && child.extension === "md") files.push(child);
+      }
+    };
+    walk(root);
+    return files;
+  }
+
+  /* Habit notes that hold any completion data. */
+  routineFilesWithData(): TFile[] {
+    const props = [this.settings.entriesProperty, this.settings.subtaskEntriesProperty];
+    return this.routineFiles().filter((file) => {
+      const frontmatter = this.frontmatter(file);
+      return props.some((prop) => frontmatter?.[prop] !== undefined);
+    });
+  }
+
+  /* Remove all completion history (entries and subtask entries) from the
+     given habit notes. Subtask lists and other properties are kept. */
+  async resetData(files: TFile[]): Promise<void> {
+    const props = [this.settings.entriesProperty, this.settings.subtaskEntriesProperty];
+    for (const file of files) {
+      await this.updateFrontmatter(file, (frontmatter) => {
+        for (const prop of props) delete frontmatter[prop];
+      });
+    }
+  }
+
   private displayName(name: string): string {
     if (!this.settings.hideRoutineNumbering) return name;
     const withoutNumbering = name.replace(/^\s*\d+[.)]\s+/, "");
@@ -287,11 +323,9 @@ export default class FolderRoutinesPlugin extends Plugin {
     }
     const button = nav.createEl("button", {
       cls: `folder-routines-day-nav-button mod-${side}`,
-      attr: { "aria-label": `Open ${target.basename}` },
+      attr: { "aria-label": side === "previous" ? "Previous day" : "Next day" },
     });
-    const icon = button.createSpan({ cls: "folder-routines-day-nav-icon" });
-    setIcon(icon, side === "previous" ? "chevron-left" : "chevron-right");
-    button.createSpan({ cls: "folder-routines-day-nav-label", text: target.basename });
+    setIcon(button, side === "previous" ? "arrow-left" : "arrow-right");
     button.addEventListener("click", (evt) => {
       void this.app.workspace.openLinkText(target.path, sourcePath, Keymap.isModEvent(evt));
     });
@@ -317,8 +351,8 @@ export default class FolderRoutinesPlugin extends Plugin {
   }
 
   /* The streak through `dateStr`: consecutive days in `entries` ending that
-     day. When that day is not ticked yet, `pending` is set and `days` is what
-     the streak would become once it is. */
+     day. When that day is not ticked yet, `pending` is set and `days` is the
+     streak so far, ending the day before. */
   private streak(file: TFile, dateStr: string): { days: number; pending: boolean } {
     const fmt = this.settings.storeDateFormat || "YYYY-MM-DD";
     const entries = new Set(
@@ -333,7 +367,8 @@ export default class FolderRoutinesPlugin extends Plugin {
       count++;
       day.add(-1, "days");
     }
-    return { days: count + 1, pending: !entries.has(dateStr) };
+    const pending = !entries.has(dateStr);
+    return { days: pending ? count : count + 1, pending };
   }
 
   private isChecked(file: TFile, dateStr: string): boolean {
@@ -579,7 +614,9 @@ export default class FolderRoutinesPlugin extends Plugin {
 
     for (let sectionIndex = 0; sectionIndex < subfolders.length; sectionIndex++) {
       const sub = subfolders[sectionIndex];
-      const section = container.createDiv({ cls: "folder-routines-section" });
+      const section = container.createDiv({
+        cls: "folder-routines-section is-collapsed",
+      });
       const colorIndex = sectionIndex % FolderRoutinesPlugin.SECTION_COLORS;
       section.addClass(`folder-routines-color-${colorIndex + 1}`);
       const tag = ("h" + Math.min(depth, 6)) as keyof HTMLElementTagNameMap;
@@ -750,15 +787,16 @@ export default class FolderRoutinesPlugin extends Plugin {
     });
     const streakEl = label.createSpan({ cls: "folder-routines-streak" });
     const updateStreak = () => {
-      const { days, pending } = this.showsStreak(file)
+      const shown = this.showsStreak(file);
+      const { days, pending } = shown
         ? this.streak(file, dateStr)
         : { days: 0, pending: false };
-      streakEl.setText(days > 0 ? `🔥 ${days}` : "");
-      streakEl.toggleClass("is-empty", days === 0);
+      streakEl.setText(shown ? `🔥 ${days}` : "");
+      streakEl.toggleClass("is-empty", !shown);
       streakEl.toggleClass("is-pending", pending);
       streakEl.setAttribute(
         "aria-label",
-        pending ? `${days}-day streak once completed` : `${days}-day streak`
+        pending ? `${days}-day streak, not yet completed today` : `${days}-day streak`
       );
     };
     updateStreak();
@@ -929,6 +967,49 @@ export default class FolderRoutinesPlugin extends Plugin {
 
 }
 
+class ResetDataModal extends Modal {
+  constructor(app: App, private plugin: FolderRoutinesPlugin, private files: TFile[]) {
+    super(app);
+  }
+
+  onOpen() {
+    const { entriesProperty, subtaskEntriesProperty } = this.plugin.settings;
+    const count = this.files.length;
+    this.setTitle("Reset habit data");
+    this.contentEl.createEl("p", {
+      text:
+        `This removes the '${entriesProperty}' and '${subtaskEntriesProperty}' properties ` +
+        `from ${count} habit ${count === 1 ? "note" : "notes"}, erasing all completion ` +
+        "history and streaks. This cannot be undone.",
+    });
+    new Setting(this.contentEl)
+      .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((button) =>
+        button
+          .setButtonText("Reset data")
+          .setWarning()
+          .onClick(async () => {
+            button.setDisabled(true);
+            try {
+              await this.plugin.resetData(this.files);
+              new Notice(
+                `Habit Checklist: cleared data from ${count} ${count === 1 ? "note" : "notes"}. ` +
+                  "Reopen open daily notes to refresh their checklists."
+              );
+            } catch (e) {
+              console.error("Habit Checklist: failed to reset data", e);
+              new Notice("Habit Checklist: failed to reset data. See the console for details.");
+            }
+            this.close();
+          })
+      );
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
 class FolderRoutinesSettingTab extends PluginSettingTab {
   plugin: FolderRoutinesPlugin;
 
@@ -977,7 +1058,25 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
           placeholder: "subtaskEntries",
         },
       },
+      {
+        name: "Reset habit data",
+        desc: "Remove all entries and subtask entries from every habit note. This cannot be undone.",
+        action: () => this.confirmReset(),
+      },
     ];
+  }
+
+  private confirmReset() {
+    if (!this.plugin.routinesRoot()) {
+      new Notice(`Habit Checklist: folder "${this.plugin.settings.routinesFolder}" not found.`);
+      return;
+    }
+    const files = this.plugin.routineFilesWithData();
+    if (files.length === 0) {
+      new Notice("Habit Checklist: no habit data to reset.");
+      return;
+    }
+    new ResetDataModal(this.app, this.plugin, files).open();
   }
 
   getControlValue(key: string): unknown {
@@ -1083,6 +1182,16 @@ class FolderRoutinesSettingTab extends PluginSettingTab {
               value.trim() || "subtaskEntries";
             await this.plugin.saveSettings();
           })
+      );
+
+    new Setting(containerEl)
+      .setName("Reset habit data")
+      .setDesc("Remove all entries and subtask entries from every habit note. This cannot be undone.")
+      .addButton((button) =>
+        button
+          .setButtonText("Reset data")
+          .setWarning()
+          .onClick(() => this.confirmReset())
       );
 
   }
