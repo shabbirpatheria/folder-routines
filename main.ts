@@ -61,12 +61,12 @@ interface ParsedDate {
 type MomentFactory = (input: string, format: string, strict: boolean) => ParsedDate;
 
 /* Per-block registry of "apply this completion state to my UI" callbacks,
-   keyed by ref (note path, or path::subtask), plus streak redraws keyed by
-   note path. */
+   keyed by ref (note path, or path::subtask), plus "re-read this habit note"
+   callbacks keyed by note path, run whenever the note changes on disk. */
 interface BlockSync {
   id: string;
   setters: Map<string, (checked: boolean) => void>;
-  streaks: Map<string, () => void>;
+  refreshers: Map<string, () => void>;
 }
 
 /* Broadcast whenever a habit completion is written, so every rendered
@@ -572,7 +572,7 @@ export default class FolderRoutinesPlugin extends Plugin {
     const sync: BlockSync = {
       id: this.nextBlockId(),
       setters: new Map(),
-      streaks: new Map(),
+      refreshers: new Map(),
     };
     await this.renderFolder(root, body, dateStr, 3, sync);
     this.layoutColumns(body);
@@ -582,11 +582,13 @@ export default class FolderRoutinesPlugin extends Plugin {
       sync.setters.get(makeRef(ev.path, ev.subtask))?.(ev.checked);
     });
 
-    const streakChild = new MarkdownRenderChild(container);
-    streakChild.registerEvent(
-      this.app.metadataCache.on("changed", (file) => sync.streaks.get(file.path)?.())
+    // Habit notes can change underneath the checklist, e.g. when Obsidian Sync
+    // brings in ticks made on another device; redraw those habits in place.
+    const refreshChild = new MarkdownRenderChild(container);
+    refreshChild.registerEvent(
+      this.app.metadataCache.on("changed", (file) => sync.refreshers.get(file.path)?.())
     );
-    ctx.addChild(streakChild);
+    ctx.addChild(refreshChild);
   }
 
   private async renderFolder(
@@ -800,18 +802,23 @@ export default class FolderRoutinesPlugin extends Plugin {
       );
     };
     updateStreak();
-    sync?.streaks.set(file.path, updateStreak);
 
     if (subtasks.length === 0) {
       checkbox.classList.add("folder-routines-progress-checkbox");
       checkbox.checked = this.isChecked(file, dateStr);
       itemEl.toggleClass("is-checked", checkbox.checked);
 
-      sync?.setters.set(file.path, (checked) => {
+      const applyChecked = (checked: boolean) => {
         if (checkbox.checked === checked) return;
         checkbox.checked = checked;
         itemEl.toggleClass("is-checked", checked);
         this.updateAncestorProgress(itemEl);
+      };
+      sync?.setters.set(file.path, applyChecked);
+      sync?.refreshers.set(file.path, () => {
+        updateStreak();
+        // While a tick is being saved the checkbox already shows it.
+        if (!checkbox.disabled) applyChecked(this.isChecked(file, dateStr));
       });
 
       checkbox.addEventListener("change", () => {
@@ -923,6 +930,20 @@ export default class FolderRoutinesPlugin extends Plugin {
 
     refreshParent();
 
+    sync?.refreshers.set(file.path, () => {
+      updateStreak();
+      if (checkbox.disabled) return;
+      // Parent dates count for every subtask, matching reconcileSubtaskEntries.
+      const parentDone = this.isChecked(file, dateStr);
+      for (const s of subEls) {
+        const checked = parentDone || this.isSubtaskChecked(file, s.name, dateStr);
+        s.checkbox.checked = checked;
+        s.el.toggleClass("is-checked", checked);
+      }
+      refreshParent();
+      this.updateAncestorProgress(itemEl);
+    });
+
     sync?.setters.set(file.path, (checked) => {
       checkbox.checked = checked;
       itemEl.toggleClass("is-checked", checked);
@@ -993,8 +1014,7 @@ class ResetDataModal extends Modal {
             try {
               await this.plugin.resetData(this.files);
               new Notice(
-                `Habit Checklist: cleared data from ${count} ${count === 1 ? "note" : "notes"}. ` +
-                  "Reopen open daily notes to refresh their checklists."
+                `Habit Checklist: cleared data from ${count} ${count === 1 ? "note" : "notes"}.`
               );
             } catch (e) {
               console.error("Habit Checklist: failed to reset data", e);

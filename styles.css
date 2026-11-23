@@ -2,8 +2,9 @@
    Minimal habit checklist
    ============================================================ */
 .folder-routines.folder-routines-minimal {
-  --fr-purple: #7c5cff;
-  --fr-purple-hi: #a88bff;
+  /* Section colours come from the theme's palette, which follows light and
+     dark mode; the hex values are fallbacks for themes that lack them. */
+  --fr-purple: var(--color-purple, #a88bff);
   --fr-accent: var(--interactive-accent);
   --fr-accent-hi: var(--interactive-accent-hover, var(--interactive-accent));
   --fr-ink-light: var(--text-normal);
@@ -43,22 +44,19 @@
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-root {
-  --fr-accent: var(--fr-purple-hi);
-}
-.theme-light .folder-routines.folder-routines-minimal .folder-routines-root {
   --fr-accent: var(--fr-purple);
 }
 .folder-routines.folder-routines-minimal .folder-routines-color-1 {
-  --fr-accent: #5a95e0;
+  --fr-accent: var(--color-blue, #5a95e0);
 }
 .folder-routines.folder-routines-minimal .folder-routines-color-2 {
-  --fr-accent: #cea345;
+  --fr-accent: var(--color-yellow, #cea345);
 }
 .folder-routines.folder-routines-minimal .folder-routines-color-3 {
-  --fr-accent: #47c95a;
+  --fr-accent: var(--color-green, #47c95a);
 }
 .folder-routines.folder-routines-minimal .folder-routines-color-4 {
-  --fr-accent: #e0574f;
+  --fr-accent: var(--color-red, #e0574f);
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-heading {
@@ -121,16 +119,9 @@
 .folder-routines.folder-routines-minimal .folder-routines-root
   > .folder-routines-heading
   .folder-routines-heading-title {
-  color: var(--fr-purple-hi);
+  color: var(--fr-purple);
   font-size: 1.08rem;
   letter-spacing: 0;
-}
-.theme-light
-  .folder-routines.folder-routines-minimal
-  .folder-routines-root
-  > .folder-routines-heading
-  .folder-routines-heading-title {
-  color: var(--fr-purple);
 }
 
 .folder-routines.folder-routines-minimal .folder-routines-progress {
@@ -181,13 +172,6 @@
   transition: width 180ms ease;
 }
 .folder-routines.folder-routines-minimal .folder-routines-root
-  > .folder-routines-heading
-  .folder-routines-progress-fill {
-  background: var(--fr-purple-hi);
-}
-.theme-light
-  .folder-routines.folder-routines-minimal
-  .folder-routines-root
   > .folder-routines-heading
   .folder-routines-progress-fill {
   background: var(--fr-purple);
